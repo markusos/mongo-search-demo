@@ -1,4 +1,4 @@
-"""Tests for demo_search.py script."""
+"""Tests for search.py script."""
 
 import sys
 from pathlib import Path
@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 # ruff: noqa: E402, I001
-from demo_search import format_result, print_comparison, print_help, print_results
+from search import format_result, print_comparison, print_help, print_results
 from src.search_service import SearchResult
 
 
@@ -277,9 +277,9 @@ class TestPrintHelp:
 class TestIntegration:
     """Integration tests for the demo script."""
 
-    @patch("demo_search.SearchService")
-    @patch("demo_search.EmbeddingGenerator")
-    @patch("demo_search.MongoDBManager")
+    @patch("search.SearchService")
+    @patch("search.EmbeddingGenerator")
+    @patch("search.MongoDBManager")
     def test_search_service_initialization(self, mock_db, mock_embedding, mock_search, monkeypatch):
         """Test that services can be initialized."""
         # Set environment variables
@@ -297,7 +297,7 @@ class TestIntegration:
         mock_search.return_value = mock_search_instance
 
         # Import and test (this would be part of the main function)
-        from demo_search import EmbeddingGenerator, MongoDBManager, SearchService
+        from search import EmbeddingGenerator, MongoDBManager, SearchService
 
         db = MongoDBManager("mongodb://localhost:27017")
         embedding = EmbeddingGenerator("http://localhost:1234/v1", "test-model")

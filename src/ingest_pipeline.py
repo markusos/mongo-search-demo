@@ -364,9 +364,7 @@ class IngestionPipeline:
         if isinstance(self.embedding_gen, CachedEmbeddingGenerator):
             cache_stats = self.embedding_gen.get_cache_stats()
             total = cache_stats["cache_hits"] + cache_stats["cache_misses"]
-            hit_rate = (
-                (cache_stats["cache_hits"] / total * 100) if total > 0 else 0
-            )
+            hit_rate = (cache_stats["cache_hits"] / total * 100) if total > 0 else 0
 
             # Write to progress bar's postfix instead of separate log line
             pbar.set_postfix(

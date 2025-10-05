@@ -145,7 +145,7 @@ Ingests Wikipedia articles into MongoDB with embeddings.
 
 **Usage:**
 ```bash
-uv run python scripts/ingest.py [OPTIONS]
+./scripts/ingest.py [OPTIONS]
 ```
 
 **Options:**
@@ -160,27 +160,27 @@ uv run python scripts/ingest.py [OPTIONS]
 **Examples:**
 ```bash
 # Start fresh with 100 articles
-uv run python scripts/ingest_wikipedia.py --clean --max-articles 100
+./scripts/ingest.py --clean --max-articles 100
 
 # Resume previous ingestion
-uv run python scripts/ingest_wikipedia.py --resume
+./scripts/ingest.py --resume
 
 # Custom checkpoint interval
-uv run python scripts/ingest_wikipedia.py --max-articles 500 --checkpoint-interval 100
+./scripts/ingest.py --max-articles 500 --checkpoint-interval 100
 
 # Specify custom XML file location
-uv run python scripts/ingest_wikipedia.py \
+./scripts/ingest.py \
   --xml-file ./data/enwiki-latest-pages-articles-multistream.xml.bz2 \
   --max-articles 100
 ```
 
-### `scripts/demo_search.py`
+### `scripts/search.py`
 
 Interactive CLI for searching the Wikipedia knowledge base.
 
 **Usage:**
 ```bash
-uv run python scripts/demo_search.py [OPTIONS]
+./scripts/search.py [OPTIONS]
 ```
 
 **Options:**
