@@ -139,7 +139,7 @@ embedding:
 
 ## Scripts Usage
 
-### `scripts/search.py`
+### `scripts/ingest.py`
 
 Ingests Wikipedia articles into MongoDB with embeddings.
 
