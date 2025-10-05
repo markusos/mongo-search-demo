@@ -1,0 +1,65 @@
+services:
+   mongod:
+      image: mongodb/mongodb-community-server:8.2.0-ubi9
+      container_name: mongod-community
+      command: >-
+         mongod
+         --config /etc/mongod.conf
+         --replSet rs0
+      ports:
+         - 27017:27017
+      extra_hosts:
+         - "host.docker.internal:host-gateway"
+      volumes:
+         - mongod_data:/data/db
+         - ./mongod.conf:/etc/mongod.conf:ro
+      networks:
+         - search-community
+      healthcheck:
+         test: mongosh --quiet --eval "db.adminCommand('ping')" || exit 1
+         interval: 5s
+         timeout: 5s
+         retries: 12
+         start_period: 10s
+
+   mongod-setup:
+      image: mongodb/mongodb-community-server:8.2.0-ubi9
+      container_name: mongod-setup
+      depends_on:
+         - mongod
+      command: bash /setup-replica-set.sh
+      volumes:
+         - ./setup-replica-set.sh:/setup-replica-set.sh:ro
+      networks:
+         - search-community
+      restart: "no"
+
+
+   mongot:
+      image: mongodb/mongodb-community-search:0.53.1
+      container_name: mongot-community-pupr
+      networks:
+         - search-community
+      environment:
+         - JAVA_TOOL_OPTIONS="-XX:UseSVE=0"
+      volumes:
+         - mongot_data:/data/mongot
+         - ./mongot.conf:/mongot-community/config.default.yml
+         - ./pwfile:/mongot-community/pwfile:ro
+      depends_on:
+         mongod:
+            condition: service_healthy
+         mongod-setup:
+            condition: service_completed_successfully
+      ports:
+         - 27028:27028  # Query server port from config
+         - 9946:9946    # Metrics port from config
+
+volumes:
+   mongod_data:
+   mongot_data:
+
+networks:
+   search-community:
+      name: search-community
+      # external: true  # Use an external network if it exists. Comment this line if you want to create a new network.

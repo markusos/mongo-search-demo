@@ -1,0 +1,33 @@
+{
+  "article_count": 100,
+  "stats": {
+    "articles_processed": 100,
+    "articles_failed": 0,
+    "chunks_created": 0,
+    "chunks_failed": 0,
+    "embeddings_generated": 0,
+    "embeddings_cached": 0,
+    "documents_inserted": 0,
+    "articles_skipped": 100
+  },
+  "config": {
+    "xml_path": "./data/enwiki-latest-pages-articles-multistream.xml.bz2",
+    "mongodb_uri": "mongodb://localhost:27017/?directConnection=true",
+    "database_name": "wikipedia_kb",
+    "articles_collection": "wiki_articles",
+    "chunks_collection": "wiki_chunks",
+    "batch_size": 100,
+    "chunk_size": 512,
+    "chunk_overlap": 50,
+    "chunking_strategy": "semantic",
+    "embedding_model": "text-embedding-nomic-embed-text-v1.5@q8_0",
+    "embedding_batch_size": 32,
+    "max_articles": 100,
+    "checkpoint_interval": 50,
+    "checkpoint_path": "./checkpoints",
+    "cache_embeddings": true,
+    "embedding_cache_path": "./embedding_cache",
+    "clean_markup": true,
+    "skip_redirects": true
+  }
+}

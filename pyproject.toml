@@ -1,0 +1,49 @@
+[project]
+name = "mongo-search-sample"
+version = "0.1.0"
+description = "Wikipedia Vector Search Knowledge Base with MongoDB Atlas Search"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "bz2file>=0.98",
+    "lmstudio>=1.5.0",
+    "lxml>=6.0.2",
+    "pymongo>=4.8.0",
+    "mwparserfromhell>=0.6.6",
+    "tiktoken>=0.7.0",
+    "pyyaml>=6.0.2",
+    "tqdm>=4.66.5",
+    "python-dotenv>=1.0.1",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.2",
+    "loguru>=0.7.2",
+    "click>=8.1.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "black>=24.10.0",
+    "ruff>=0.6.9",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]  # Line too long (handled by formatter)
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=src --cov-report=term-missing"
+
+[tool.black]
+line-length = 100
+target-version = ["py313"]
