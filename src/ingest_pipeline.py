@@ -29,7 +29,7 @@ class PipelineConfig:
     embedding_model: str = "text-embedding-nomic-embed-text-v1.5@q8_0"
     embedding_batch_size: int = 32
     max_articles: int | None = None
-    checkpoint_interval: int = 1000
+    checkpoint_interval: int = 100
     checkpoint_path: str = "./checkpoints/pipeline_checkpoint.json"
     cache_embeddings: bool = True
     embedding_cache_path: str = "./embedding_cache"

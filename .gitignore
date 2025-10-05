@@ -84,6 +84,7 @@ logs/
 # Testing
 .pytest_cache/
 .coverage
+checkpoints
 htmlcov/
 .tox/
 .nox/

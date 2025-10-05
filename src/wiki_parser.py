@@ -183,7 +183,7 @@ class WikiXMLParser:
 
     def parse_stream(self, max_articles: int | None = None) -> Generator[WikiArticle]:
         """
-        Parse XML file and yield WikiArticle objects.
+        Parse XML file and yield WikiArticle objects one at a time.
 
         Args:
             max_articles: Maximum number of articles to parse (None = all)
@@ -192,10 +192,10 @@ class WikiXMLParser:
             WikiArticle objects
         """
         articles_yielded = 0
-        articles = []
+        pending_article = []
 
         def article_callback(article: WikiArticle):
-            """Collect articles for yielding."""
+            """Yield articles immediately as they're parsed."""
             nonlocal articles_yielded
             if max_articles and articles_yielded >= max_articles:
                 raise StopParsingError()
@@ -206,7 +206,7 @@ class WikiXMLParser:
 
             # Filter by article quality
             if self.filter_article(article):
-                articles.append(article)
+                pending_article.append(article)
                 articles_yielded += 1
 
         # Create SAX parser
@@ -228,13 +228,26 @@ class WikiXMLParser:
                 file_handle = open(self.xml_path, encoding="utf-8")
 
             with file_handle:
+                # We need to parse incrementally and yield as we go
+                # This is tricky with SAX, so we'll use a different approach
                 try:
-                    parser.parse(file_handle)
+                    # Start parsing in a way that allows yielding
+                    for line in file_handle:
+                        parser.feed(line)
+
+                        # Yield any pending articles
+                        while pending_article:
+                            yield pending_article.pop(0)
+
+                    # Close the parser to ensure all data is processed
+                    parser.close()
+
                 except StopParsingError:
                     logger.info(f"Stopped parsing after {articles_yielded} articles")
-
-                # Yield collected articles
-                yield from articles
+                finally:
+                    # Yield any remaining articles
+                    while pending_article:
+                        yield pending_article.pop(0)
 
         except Exception as e:
             logger.error(f"Error parsing XML: {e}")

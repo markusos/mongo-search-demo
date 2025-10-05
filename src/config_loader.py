@@ -58,7 +58,7 @@ class PipelineConfig(BaseModel):
     """Ingestion pipeline configuration."""
 
     batch_size: int = 100
-    checkpoint_interval: int = 1000
+    checkpoint_interval: int = 100
     checkpoint_path: str = "./checkpoints"
     parallel_workers: int = 4
     log_level: str = "INFO"

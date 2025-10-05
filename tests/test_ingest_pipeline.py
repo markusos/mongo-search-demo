@@ -90,7 +90,7 @@ class TestPipelineConfig:
         assert config.chunk_overlap == 50
         assert config.chunking_strategy == "semantic"
         assert config.max_articles is None
-        assert config.checkpoint_interval == 1000
+        assert config.checkpoint_interval == 100
         assert config.cache_embeddings is True
 
     def test_custom_values(self):
