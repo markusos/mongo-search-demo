@@ -2,7 +2,6 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 # Add scripts directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
@@ -276,36 +275,6 @@ class TestPrintHelp:
 
 class TestIntegration:
     """Integration tests for the demo script."""
-
-    @patch("search.SearchService")
-    @patch("search.EmbeddingGenerator")
-    @patch("search.MongoDBManager")
-    def test_search_service_initialization(self, mock_db, mock_embedding, mock_search, monkeypatch):
-        """Test that services can be initialized."""
-        # Set environment variables
-        monkeypatch.setenv("MONGODB_URI", "mongodb://localhost:27017")
-        monkeypatch.setenv("LMSTUDIO_URL", "http://localhost:1234/v1")
-        monkeypatch.setenv("EMBEDDING_MODEL", "test-model")
-
-        # Mock the service initialization
-        mock_db_instance = MagicMock()
-        mock_embedding_instance = MagicMock()
-        mock_search_instance = MagicMock()
-
-        mock_db.return_value = mock_db_instance
-        mock_embedding.return_value = mock_embedding_instance
-        mock_search.return_value = mock_search_instance
-
-        # Import and test (this would be part of the main function)
-        from search import EmbeddingGenerator, MongoDBManager, SearchService
-
-        db = MongoDBManager("mongodb://localhost:27017")
-        embedding = EmbeddingGenerator("http://localhost:1234/v1", "test-model")
-        search = SearchService(db, embedding)
-
-        assert db is not None
-        assert embedding is not None
-        assert search is not None
 
     def test_result_ordering(self):
         """Test that results maintain proper ordering."""

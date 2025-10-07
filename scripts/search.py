@@ -247,7 +247,7 @@ def run_interactive_search() -> None:
     try:
         # Initialize services
         db_manager = MongoDBManager(config=config.mongodb)
-        embedding_gen = EmbeddingGenerator(config=config.embedding, max_retries=3)
+        embedding_gen = EmbeddingGenerator(config=config.embedding)
         search_service = SearchService(db_manager, embedding_gen)
 
         print("✓ Connected successfully!\n")

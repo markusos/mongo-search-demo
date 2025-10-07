@@ -19,22 +19,18 @@ class EmbeddingGenerator:
     def __init__(
         self,
         config: EmbeddingConfig,
-        max_retries: int = 3,
-        retry_delay: float = 1.0,
     ):
         """
         Initialize the embedding generator.
 
         Args:
             config: Embedding configuration
-            max_retries: Maximum number of retry attempts for failed requests
-            retry_delay: Initial delay between retries (seconds)
         """
         self.config = config
         self.model_name = config.model
         self.batch_size = config.batch_size
-        self.max_retries = max_retries
-        self.retry_delay = retry_delay
+        self.max_retries = config.max_retries
+        self.retry_delay = config.retry_delay
 
         # Initialize model
         try:

@@ -61,6 +61,8 @@ class EmbeddingConfig(BaseModel):
     lmstudio_url: str = "http://localhost:1234"
     cache_embeddings: bool = True
     cache_path: str = "./embedding_cache"
+    max_retries: int = 3
+    retry_delay: float = 1.0
 
 
 class PipelineConfig(BaseModel):

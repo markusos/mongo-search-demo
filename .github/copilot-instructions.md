@@ -45,26 +45,6 @@ uv run python -m pytest
 - **data/**: Wikipedia XML data files
 - **embedding_cache/**: Cached embeddings for performance
 
-### Code Standards
-
-#### Enums
-
-When defining configuration options with a fixed set of values, use Enums:
-
-```python
-from enum import Enum
-
-class ChunkingStrategy(str, Enum):
-    """Available chunking strategies."""
-    SEMANTIC = "semantic"
-    FIXED = "fixed"
-    HYBRID = "hybrid"
-```
-
-- Define enums in `config_loader.py` when they're used in configuration
-- Use enum values in code instead of string literals
-- Enums provide type safety and autocomplete support
-
 ### Testing
 
 Run tests with:

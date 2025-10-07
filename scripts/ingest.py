@@ -233,7 +233,7 @@ def main() -> None:
         # Show cache statistics if available
         if hasattr(pipeline.embedding_gen, "get_cache_stats"):
             cache_stats = pipeline.embedding_gen.get_cache_stats()
-            logger.info("\nEmbedding Cache Statistics:")
+            logger.info("Embedding Cache Statistics:")
             logger.info(f"  Cache hits: {cache_stats['cache_hits']:,}")
             logger.info(f"  Cache misses: {cache_stats['cache_misses']:,}")
             logger.info(f"  Hit rate: {cache_stats['hit_rate']:.1f}%")
@@ -241,9 +241,9 @@ def main() -> None:
         # Show database statistics after ingestion
         articles_count = pipeline.db_manager.articles_collection.count_documents({})
         chunks_count = pipeline.db_manager.chunks_collection.count_documents({})
-        logger.info(f"\nDatabase after: {articles_count:,} articles, {chunks_count:,} chunks")
+        logger.info(f"Database after: {articles_count:,} articles, {chunks_count:,} chunks")
 
-        logger.info("\n✓ Ingestion successful!")
+        logger.info("✓ Ingestion successful!")
 
     except KeyboardInterrupt:
         logger.warning("\n\nIngestion interrupted by user")

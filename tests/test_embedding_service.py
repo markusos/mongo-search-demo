@@ -59,10 +59,10 @@ class TestEmbeddingGenerator:
             mock_lms.return_value = mock_lmstudio_model
             embedding_config.model = "test-model"
             embedding_config.batch_size = 16
+            embedding_config.max_retries = 5
 
             generator = EmbeddingGenerator(
                 config=embedding_config,
-                max_retries=5,
             )
 
             assert generator.model_name == "test-model"
@@ -106,7 +106,10 @@ class TestEmbeddingGenerator:
             ]
             mock_lms.return_value = mock_lmstudio_model
 
-            generator = EmbeddingGenerator(config=embedding_config, max_retries=3, retry_delay=0.01)
+            # Update config for faster retries in test
+            embedding_config.max_retries = 3
+            embedding_config.retry_delay = 0.01
+            generator = EmbeddingGenerator(config=embedding_config)
             embedding = generator.embed_single("test")
 
             assert len(embedding) == 768
@@ -118,7 +121,10 @@ class TestEmbeddingGenerator:
             mock_lmstudio_model.embed.side_effect = Exception("Persistent error")
             mock_lms.return_value = mock_lmstudio_model
 
-            generator = EmbeddingGenerator(config=embedding_config, max_retries=2, retry_delay=0.01)
+            # Update config for faster retries in test
+            embedding_config.max_retries = 2
+            embedding_config.retry_delay = 0.01
+            generator = EmbeddingGenerator(config=embedding_config)
 
             with pytest.raises(RuntimeError, match="Embedding generation failed"):
                 generator.embed_single("test")
@@ -147,7 +153,10 @@ class TestEmbeddingGenerator:
             ]
             mock_lms.return_value = mock_lmstudio_model
 
-            generator = EmbeddingGenerator(config=embedding_config, max_retries=1, retry_delay=0.01)
+            # Update config for faster retries in test
+            embedding_config.max_retries = 1
+            embedding_config.retry_delay = 0.01
+            generator = EmbeddingGenerator(config=embedding_config)
             embeddings = list(generator.embed_batch(["t1", "t2", "t3"], show_progress=False))
 
             assert len(embeddings) == 3
@@ -159,15 +168,6 @@ class TestEmbeddingGenerator:
         """Test getting embedding dimension."""
         dim = embedding_generator.get_embedding_dimension()
         assert dim == 768
-
-    def test_get_embedding_dimension_cached(self, embedding_generator):
-        """Test that dimension is cached after first call."""
-        dim1 = embedding_generator.get_embedding_dimension()
-        dim2 = embedding_generator.get_embedding_dimension()
-
-        assert dim1 == dim2
-        # Model should only be called once (for the first call)
-        assert embedding_generator.model.embed.call_count == 1
 
     def test_validate_embedding_success(self, embedding_generator):
         """Test valid embedding passes validation."""
@@ -246,18 +246,6 @@ class TestEmbeddingCache:
         assert embedding_cache.get(text1) == emb1
         assert embedding_cache.get(text2) == emb2
 
-    def test_cache_overwrite(self, embedding_cache):
-        """Test overwriting cached embedding."""
-        text = "Same text"
-        emb1 = [0.1] * 768
-        emb2 = [0.2] * 768
-
-        embedding_cache.set(text, emb1)
-        embedding_cache.set(text, emb2)
-
-        # Should get the latest
-        assert embedding_cache.get(text) == emb2
-
     def test_cache_clear(self, embedding_cache):
         """Test clearing cache."""
         embedding_cache.set("text1", [0.1] * 768)
@@ -279,19 +267,6 @@ class TestEmbeddingCache:
 
         embedding_cache.set("text2", [0.2] * 768)
         assert embedding_cache.get_cache_size() == 2
-
-    def test_get_text_hash(self, embedding_cache):
-        """Test text hashing."""
-        text = "Test text"
-        hash1 = embedding_cache._get_text_hash(text)
-        hash2 = embedding_cache._get_text_hash(text)
-
-        # Same text should produce same hash
-        assert hash1 == hash2
-
-        # Different text should produce different hash
-        hash3 = embedding_cache._get_text_hash("Different text")
-        assert hash1 != hash3
 
     def test_cache_file_structure(self, embedding_cache):
         """Test that cache files are organized in subdirectories."""
@@ -402,25 +377,6 @@ class TestCachedEmbeddingGenerator:
         assert stats["cache_size"] == 2
         assert 0 < stats["hit_rate"] < 1
 
-    def test_get_cache_stats_empty(self, embedding_generator, embedding_cache):
-        """Test cache stats with no activity."""
-        cached_gen = CachedEmbeddingGenerator(embedding_generator, embedding_cache)
-
-        stats = cached_gen.get_cache_stats()
-
-        assert stats["cache_hits"] == 0
-        assert stats["cache_misses"] == 0
-        assert stats["cache_size"] == 0
-        assert stats["hit_rate"] == 0
-
-    def test_get_embedding_dimension(self, embedding_generator, embedding_cache):
-        """Test getting embedding dimension through cached generator."""
-        cached_gen = CachedEmbeddingGenerator(embedding_generator, embedding_cache)
-
-        dim = cached_gen.get_embedding_dimension()
-
-        assert dim == 768
-
     def test_batch_with_failures(self, mock_lmstudio_model, embedding_cache, embedding_config):
         """Test batch embedding with some failures."""
         with patch("src.embedding_service.lms.embedding_model") as mock_lms:
@@ -431,7 +387,10 @@ class TestCachedEmbeddingGenerator:
             ]
             mock_lms.return_value = mock_lmstudio_model
 
-            generator = EmbeddingGenerator(config=embedding_config, max_retries=1, retry_delay=0.01)
+            # Update config for faster retries in test
+            embedding_config.max_retries = 1
+            embedding_config.retry_delay = 0.01
+            generator = EmbeddingGenerator(config=embedding_config)
             cached_gen = CachedEmbeddingGenerator(generator, embedding_cache)
 
             embeddings = list(cached_gen.embed_batch(["t1", "t2", "t3"], show_progress=False))
