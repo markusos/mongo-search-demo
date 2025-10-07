@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from pymongo.errors import BulkWriteError, ConnectionFailure
 
+from src.config_loader import MongoDBCollections, MongoDBConfig
 from src.mongodb_manager import MongoDBManager
 
 
@@ -18,35 +19,40 @@ def mock_mongo_client():
 
 
 @pytest.fixture
-def mongodb_manager(mock_mongo_client):
+def mongodb_config():
+    """Create a test MongoDB configuration."""
+    return MongoDBConfig(
+        uri="mongodb://localhost:27017",
+        database="test_db",
+        collections=MongoDBCollections(articles="articles", chunks="chunks"),
+    )
+
+
+@pytest.fixture
+def mongodb_manager(mock_mongo_client, mongodb_config):
     """Create a MongoDB manager with mocked client."""
     with patch("src.mongodb_manager.MongoClient") as mock_client_class:
         mock_client_class.return_value = mock_mongo_client
-        manager = MongoDBManager("mongodb://localhost:27017")
+        manager = MongoDBManager(config=mongodb_config)
         return manager
 
 
 class TestMongoDBManagerInitialization:
     """Test MongoDB manager initialization."""
 
-    def test_successful_initialization(self, mock_mongo_client):
+    def test_successful_initialization(self, mock_mongo_client, mongodb_config):
         """Test successful MongoDB connection."""
         with patch("src.mongodb_manager.MongoClient") as mock_client_class:
             mock_client_class.return_value = mock_mongo_client
 
-            manager = MongoDBManager(
-                "mongodb://localhost:27017",
-                database_name="test_db",
-                articles_collection="articles",
-                chunks_collection="chunks",
-            )
+            manager = MongoDBManager(config=mongodb_config)
 
             assert manager.database_name == "test_db"
             assert manager.articles_collection_name == "articles"
             assert manager.chunks_collection_name == "chunks"
             mock_mongo_client.admin.command.assert_called_with("ping")
 
-    def test_connection_failure(self):
+    def test_connection_failure(self, mongodb_config):
         """Test handling of connection failure."""
         with patch("src.mongodb_manager.MongoClient") as mock_client_class:
             mock_client = MagicMock()
@@ -54,14 +60,14 @@ class TestMongoDBManagerInitialization:
             mock_client_class.return_value = mock_client
 
             with pytest.raises(ConnectionFailure):
-                MongoDBManager("mongodb://invalid:27017")
+                MongoDBManager(config=mongodb_config)
 
-    def test_context_manager(self, mock_mongo_client):
+    def test_context_manager(self, mock_mongo_client, mongodb_config):
         """Test context manager support."""
         with patch("src.mongodb_manager.MongoClient") as mock_client_class:
             mock_client_class.return_value = mock_mongo_client
 
-            with MongoDBManager("mongodb://localhost:27017") as manager:
+            with MongoDBManager(config=mongodb_config) as manager:
                 assert manager.is_connected()
 
             mock_mongo_client.close.assert_called_once()
@@ -109,9 +115,10 @@ class TestCollectionSetup:
     def test_setup_collections_already_exist(self, mongodb_manager):
         """Test setup when collections already exist."""
         # Mock list_collection_names to return existing collections
+        # Use the actual collection names from the manager's config
         mongodb_manager.db.list_collection_names.return_value = [
-            "wiki_articles",
-            "wiki_chunks",
+            mongodb_manager.articles_collection_name,
+            mongodb_manager.chunks_collection_name,
         ]
 
         # Mock create_collection

@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from loguru import logger
 
 from src.config_loader import load_config
-from src.ingest_pipeline import IngestionPipeline, PipelineConfig
+from src.ingest_pipeline import IngestionPipeline
 
 
 def setup_logging(verbose: bool = False, log_level: str = "INFO") -> None:
@@ -172,32 +172,21 @@ def main() -> None:
     logger.info(f"Batch Size: {config.pipeline.batch_size}")
 
     try:
-        # Pipeline configuration
-        pipeline_config = PipelineConfig(
-            xml_path=xml_file,
-            mongodb_uri=config.mongodb.uri,
-            database_name=config.mongodb.database,
-            articles_collection=config.mongodb.collections.articles,
-            chunks_collection=config.mongodb.collections.chunks,
-            batch_size=config.pipeline.batch_size,
-            chunk_size=config.text_processing.chunk_size,
-            chunk_overlap=config.text_processing.chunk_overlap,
-            chunking_strategy=config.text_processing.chunking_strategy,
-            embedding_model=config.embedding.model,
-            max_articles=max_articles,
-            checkpoint_interval=args.checkpoint_interval,
-            checkpoint_path=config.pipeline.checkpoint_path,
-            cache_embeddings=config.embedding.cache_embeddings and not args.no_cache,
-            embedding_cache_path=config.embedding.cache_path,
-        )
+        # Override config values from command-line args
+        if max_articles is not None:
+            config.wikipedia.max_articles = max_articles
+        if xml_file:
+            config.wikipedia.xml_path = xml_file
+        if args.checkpoint_interval:
+            config.pipeline.checkpoint_interval = args.checkpoint_interval
+        if args.no_cache:
+            config.embedding.cache_embeddings = False
+        if args.verbose:
+            config.logging.embedding_verbose = True
 
         # Create pipeline (this initializes all components)
         logger.info("Initializing pipeline...")
-        pipeline = IngestionPipeline(
-            config=pipeline_config,
-            verbose_embedding_logs=config.logging.embedding_verbose or args.verbose,
-            cache_stats_interval=config.logging.cache_stats_interval,
-        )
+        pipeline = IngestionPipeline(config=config)
         logger.info("✓ Pipeline initialized")
 
         # Clean database if requested
@@ -220,9 +209,10 @@ def main() -> None:
         import time
 
         start_time = time.time()
-        stats = pipeline.run(
-            resume_from=pipeline_config.checkpoint_path if args.resume else None,
+        checkpoint_file = (
+            config.pipeline.checkpoint_path + "/pipeline_checkpoint.json" if args.resume else None
         )
+        stats = pipeline.run(resume_from=checkpoint_file)
         elapsed_time = time.time() - start_time
 
         # Show final statistics

@@ -30,7 +30,7 @@ class MongoDBConfig(BaseModel):
 
     uri: str
     database: str
-    collections: MongoDBCollections
+    collections: MongoDBCollections = MongoDBCollections()
 
 
 class TextProcessingConfig(BaseModel):
@@ -86,11 +86,11 @@ class AppConfig(BaseModel):
 
     wikipedia: WikipediaConfig
     mongodb: MongoDBConfig
-    text_processing: TextProcessingConfig
+    text_processing: TextProcessingConfig = TextProcessingConfig()
     embedding: EmbeddingConfig
-    pipeline: PipelineConfig
-    search: SearchConfig
-    logging: LoggingConfig = LoggingConfig()  # Default logging config
+    pipeline: PipelineConfig = PipelineConfig()
+    search: SearchConfig = SearchConfig()
+    logging: LoggingConfig = LoggingConfig()
 
 
 def load_config(config_path: Path | None = None) -> AppConfig:

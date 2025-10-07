@@ -9,48 +9,42 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 from pymongo.errors import BulkWriteError, ConnectionFailure
 
+from src.config_loader import MongoDBConfig
+
 
 class MongoDBManager:
     """Manage MongoDB operations for Wikipedia knowledge base."""
 
-    def __init__(
-        self,
-        connection_string: str,
-        database_name: str = "wikipedia_kb",
-        articles_collection: str = "wiki_articles",
-        chunks_collection: str = "wiki_chunks",
-    ):
+    def __init__(self, config: MongoDBConfig):
         """Initialize MongoDB connection.
 
         Args:
-            connection_string: MongoDB connection URI
-            database_name: Name of the database
-            articles_collection: Name of the articles collection
-            chunks_collection: Name of the chunks collection
+            config: MongoDB configuration
 
         Raises:
             ConnectionFailure: If unable to connect to MongoDB
         """
-        self.connection_string = connection_string
-        self.database_name = database_name
-        self.articles_collection_name = articles_collection
-        self.chunks_collection_name = chunks_collection
+        self.config = config
+        self.connection_string = config.uri
+        self.database_name = config.database
+        self.articles_collection_name = config.collections.articles
+        self.chunks_collection_name = config.collections.chunks
 
         try:
             self.client: MongoClient = MongoClient(
-                connection_string,
+                self.connection_string,
                 serverSelectionTimeoutMS=5000,
             )
             # Test connection
             self.client.admin.command("ping")
-            logger.info(f"Connected to MongoDB database: {database_name}")
+            logger.info(f"Connected to MongoDB database: {self.database_name}")
         except ConnectionFailure as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
             raise
 
-        self.db: Database = self.client[database_name]
-        self.articles_collection: Collection = self.db[articles_collection]
-        self.chunks_collection: Collection = self.db[chunks_collection]
+        self.db: Database = self.client[self.database_name]
+        self.articles_collection: Collection = self.db[self.articles_collection_name]
+        self.chunks_collection: Collection = self.db[self.chunks_collection_name]
 
     def close(self) -> None:
         """Close MongoDB connection."""

@@ -4,11 +4,25 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.config_loader import EmbeddingConfig
 from src.embedding_service import (
     CachedEmbeddingGenerator,
     EmbeddingCache,
     EmbeddingGenerator,
 )
+
+
+@pytest.fixture
+def embedding_config():
+    """Create a test embedding configuration."""
+    return EmbeddingConfig(
+        model="test-model",
+        dimension=768,
+        batch_size=32,
+        lmstudio_url="http://localhost:1234",
+        cache_embeddings=True,
+        cache_path="./test_cache",
+    )
 
 
 @pytest.fixture
@@ -21,11 +35,11 @@ def mock_lmstudio_model():
 
 
 @pytest.fixture
-def embedding_generator(mock_lmstudio_model):
+def embedding_generator(mock_lmstudio_model, embedding_config):
     """Create an EmbeddingGenerator with mocked model."""
     with patch("src.embedding_service.lms.embedding_model") as mock_lms:
         mock_lms.return_value = mock_lmstudio_model
-        generator = EmbeddingGenerator()
+        generator = EmbeddingGenerator(config=embedding_config)
         return generator
 
 
@@ -39,14 +53,15 @@ def embedding_cache(tmp_path):
 class TestEmbeddingGenerator:
     """Test EmbeddingGenerator class."""
 
-    def test_initialization(self, mock_lmstudio_model):
+    def test_initialization(self, mock_lmstudio_model, embedding_config):
         """Test generator initialization."""
         with patch("src.embedding_service.lms.embedding_model") as mock_lms:
             mock_lms.return_value = mock_lmstudio_model
+            embedding_config.model = "test-model"
+            embedding_config.batch_size = 16
 
             generator = EmbeddingGenerator(
-                model_name="test-model",
-                batch_size=16,
+                config=embedding_config,
                 max_retries=5,
             )
 
@@ -55,13 +70,13 @@ class TestEmbeddingGenerator:
             assert generator.max_retries == 5
             mock_lms.assert_called_once_with("test-model")
 
-    def test_initialization_failure(self):
+    def test_initialization_failure(self, embedding_config):
         """Test generator initialization with model loading failure."""
         with patch("src.embedding_service.lms.embedding_model") as mock_lms:
             mock_lms.side_effect = Exception("Model not found")
 
             with pytest.raises(Exception, match="Model not found"):
-                EmbeddingGenerator()
+                EmbeddingGenerator(config=embedding_config)
 
     def test_embed_single_success(self, embedding_generator):
         """Test successful single text embedding."""
@@ -80,7 +95,7 @@ class TestEmbeddingGenerator:
         with pytest.raises(ValueError, match="Cannot embed empty text"):
             embedding_generator.embed_single("   ")
 
-    def test_embed_single_with_retry(self, mock_lmstudio_model):
+    def test_embed_single_with_retry(self, mock_lmstudio_model, embedding_config):
         """Test retry logic on failure."""
         with patch("src.embedding_service.lms.embedding_model") as mock_lms:
             # Fail first two times, succeed on third
@@ -91,19 +106,19 @@ class TestEmbeddingGenerator:
             ]
             mock_lms.return_value = mock_lmstudio_model
 
-            generator = EmbeddingGenerator(max_retries=3, retry_delay=0.01)
+            generator = EmbeddingGenerator(config=embedding_config, max_retries=3, retry_delay=0.01)
             embedding = generator.embed_single("test")
 
             assert len(embedding) == 768
             assert mock_lmstudio_model.embed.call_count == 3
 
-    def test_embed_single_max_retries_exceeded(self, mock_lmstudio_model):
+    def test_embed_single_max_retries_exceeded(self, mock_lmstudio_model, embedding_config):
         """Test that max retries raises error."""
         with patch("src.embedding_service.lms.embedding_model") as mock_lms:
             mock_lmstudio_model.embed.side_effect = Exception("Persistent error")
             mock_lms.return_value = mock_lmstudio_model
 
-            generator = EmbeddingGenerator(max_retries=2, retry_delay=0.01)
+            generator = EmbeddingGenerator(config=embedding_config, max_retries=2, retry_delay=0.01)
 
             with pytest.raises(RuntimeError, match="Embedding generation failed"):
                 generator.embed_single("test")
@@ -121,7 +136,7 @@ class TestEmbeddingGenerator:
         with pytest.raises(ValueError, match="Cannot embed empty list"):
             list(embedding_generator.embed_batch([]))
 
-    def test_embed_batch_with_failures(self, mock_lmstudio_model):
+    def test_embed_batch_with_failures(self, mock_lmstudio_model, embedding_config):
         """Test batch embedding with some failures."""
         with patch("src.embedding_service.lms.embedding_model") as mock_lms:
             # Succeed, fail, succeed
@@ -132,7 +147,7 @@ class TestEmbeddingGenerator:
             ]
             mock_lms.return_value = mock_lmstudio_model
 
-            generator = EmbeddingGenerator(max_retries=1, retry_delay=0.01)
+            generator = EmbeddingGenerator(config=embedding_config, max_retries=1, retry_delay=0.01)
             embeddings = list(generator.embed_batch(["t1", "t2", "t3"], show_progress=False))
 
             assert len(embeddings) == 3
@@ -406,7 +421,7 @@ class TestCachedEmbeddingGenerator:
 
         assert dim == 768
 
-    def test_batch_with_failures(self, mock_lmstudio_model, embedding_cache):
+    def test_batch_with_failures(self, mock_lmstudio_model, embedding_cache, embedding_config):
         """Test batch embedding with some failures."""
         with patch("src.embedding_service.lms.embedding_model") as mock_lms:
             mock_lmstudio_model.embed.side_effect = [
@@ -416,7 +431,7 @@ class TestCachedEmbeddingGenerator:
             ]
             mock_lms.return_value = mock_lmstudio_model
 
-            generator = EmbeddingGenerator(max_retries=1, retry_delay=0.01)
+            generator = EmbeddingGenerator(config=embedding_config, max_retries=1, retry_delay=0.01)
             cached_gen = CachedEmbeddingGenerator(generator, embedding_cache)
 
             embeddings = list(cached_gen.embed_batch(["t1", "t2", "t3"], show_progress=False))

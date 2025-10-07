@@ -1,43 +1,14 @@
+# Configuration
 wikipedia:
   xml_path: "./data/enwiki-latest-pages-articles-multistream.xml.bz2"
-  max_articles: null  # null = process all, or set a number for testing
-  
+
 mongodb:
   uri: "mongodb://localhost:27017/?directConnection=true"
   database: "wikipedia_kb"
   collections:
     articles: "wiki_articles"
     chunks: "wiki_chunks"
-  
-text_processing:
-  chunk_size: 512
-  chunk_overlap: 50
-  chunking_strategy: "semantic"  # semantic, fixed, or hybrid
-  min_chunk_length: 100
-  max_chunk_length: 1000
-  
+
 embedding:
   model: "text-embedding-nomic-embed-text-v1.5@q8_0"
-  dimension: 768
-  batch_size: 32
   lmstudio_url: "http://localhost:1234"
-  cache_embeddings: true
-  cache_path: "./embedding_cache"
-  
-pipeline:
-  batch_size: 100
-  checkpoint_interval: 1000
-  checkpoint_path: "./checkpoints"
-  parallel_workers: 4
-  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
-
-logging:
-  level: "INFO"  # Global log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  embedding_verbose: false  # Set to true to log every embedding batch
-  cache_stats_interval: 100  # Log cache stats every N articles (0 to disable)
-  
-search:
-  default_limit: 10
-  vector_candidates_multiplier: 10
-  hybrid_vector_weight: 0.7
-  similarity_metric: "cosine"  # cosine, dotProduct, or euclidean

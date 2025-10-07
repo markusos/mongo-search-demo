@@ -10,14 +10,15 @@ import lmstudio as lms
 from loguru import logger
 from tqdm import tqdm
 
+from src.config_loader import EmbeddingConfig
+
 
 class EmbeddingGenerator:
     """Generate embeddings using LMStudio."""
 
     def __init__(
         self,
-        model_name: str = "text-embedding-nomic-embed-text-v1.5@q8_0",
-        batch_size: int = 32,
+        config: EmbeddingConfig,
         max_retries: int = 3,
         retry_delay: float = 1.0,
     ):
@@ -25,20 +26,20 @@ class EmbeddingGenerator:
         Initialize the embedding generator.
 
         Args:
-            model_name: Name of the embedding model to use
-            batch_size: Number of texts to process in a batch
+            config: Embedding configuration
             max_retries: Maximum number of retry attempts for failed requests
             retry_delay: Initial delay between retries (seconds)
         """
-        self.model_name = model_name
-        self.batch_size = batch_size
+        self.config = config
+        self.model_name = config.model
+        self.batch_size = config.batch_size
         self.max_retries = max_retries
         self.retry_delay = retry_delay
 
         # Initialize model
         try:
-            logger.info(f"Loading embedding model: {model_name}")
-            self.model = lms.embedding_model(model_name)
+            logger.info(f"Loading embedding model: {self.model_name}")
+            self.model = lms.embedding_model(self.model_name)
             logger.info("Embedding model loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load embedding model: {e}")

@@ -6,6 +6,8 @@ from enum import Enum
 import tiktoken
 from loguru import logger
 
+from src.config_loader import TextProcessingConfig
+
 
 class ChunkingStrategy(str, Enum):
     """Available chunking strategies."""
@@ -38,29 +40,22 @@ class TextChunker:
 
     def __init__(
         self,
-        chunk_size: int = 512,
-        overlap: int = 50,
-        strategy: ChunkingStrategy = ChunkingStrategy.SEMANTIC,
-        min_chunk_length: int = 100,
-        max_chunk_length: int = 1000,
+        config: TextProcessingConfig,
         encoding_name: str = "cl100k_base",
     ):
         """
         Initialize the text chunker.
 
         Args:
-            chunk_size: Target size in tokens for each chunk
-            overlap: Number of tokens to overlap between chunks
-            strategy: Chunking strategy to use
-            min_chunk_length: Minimum chunk length in characters
-            max_chunk_length: Maximum chunk length in characters
+            config: Text processing configuration
             encoding_name: Tiktoken encoding to use for token counting
         """
-        self.chunk_size = chunk_size
-        self.overlap = overlap
-        self.strategy = ChunkingStrategy(strategy)
-        self.min_chunk_length = min_chunk_length
-        self.max_chunk_length = max_chunk_length
+        self.config = config
+        self.chunk_size = config.chunk_size
+        self.overlap = config.chunk_overlap
+        self.strategy = ChunkingStrategy(config.chunking_strategy)
+        self.min_chunk_length = config.min_chunk_length
+        self.max_chunk_length = config.max_chunk_length
 
         # Initialize tokenizer
         try:

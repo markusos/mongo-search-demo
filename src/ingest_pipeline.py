@@ -7,34 +7,11 @@ from pathlib import Path
 from loguru import logger
 from tqdm import tqdm
 
+from src.config_loader import AppConfig
 from src.embedding_service import CachedEmbeddingGenerator, EmbeddingCache, EmbeddingGenerator
 from src.mongodb_manager import MongoDBManager
-from src.text_processor import TextProcessor
+from src.text_processor import TextChunker, TextProcessor
 from src.wiki_parser import WikiArticle, WikiXMLParser
-
-
-@dataclass
-class PipelineConfig:
-    """Configuration for ingestion pipeline."""
-
-    xml_path: str
-    mongodb_uri: str
-    database_name: str = "wikipedia_kb"
-    articles_collection: str = "wiki_articles"
-    chunks_collection: str = "wiki_chunks"
-    batch_size: int = 100
-    chunk_size: int = 512
-    chunk_overlap: int = 50
-    chunking_strategy: str = "semantic"
-    embedding_model: str = "text-embedding-nomic-embed-text-v1.5@q8_0"
-    embedding_batch_size: int = 32
-    max_articles: int | None = None
-    checkpoint_interval: int = 100
-    checkpoint_path: str = "./checkpoints/pipeline_checkpoint.json"
-    cache_embeddings: bool = True
-    embedding_cache_path: str = "./embedding_cache"
-    clean_markup: bool = True
-    skip_redirects: bool = True
 
 
 @dataclass
@@ -58,23 +35,14 @@ class PipelineStats:
 class IngestionPipeline:
     """Orchestrate Wikipedia data ingestion pipeline."""
 
-    def __init__(
-        self,
-        config: PipelineConfig,
-        verbose_embedding_logs: bool = False,
-        cache_stats_interval: int = 100,
-    ):
+    def __init__(self, config: AppConfig):
         """Initialize pipeline with configuration.
 
         Args:
-            config: Pipeline configuration
-            verbose_embedding_logs: Whether to log every embedding batch
-            cache_stats_interval: Log cache stats every N articles (0 to disable)
+            config: Application configuration
         """
         self.config = config
         self.stats = PipelineStats()
-        self.verbose_embedding_logs = verbose_embedding_logs
-        self.cache_stats_interval = cache_stats_interval
         self._setup_components()
 
     def _setup_components(self) -> None:
@@ -83,42 +51,28 @@ class IngestionPipeline:
 
         # Parser
         self.parser = WikiXMLParser(
-            xml_path=self.config.xml_path,
-            clean_markup=self.config.clean_markup,
-            filter_redirects=self.config.skip_redirects,
+            xml_path=self.config.wikipedia.xml_path,
+            clean_markup=True,
+            filter_redirects=True,
         )
 
         # Text processor
-        from src.text_processor import TextChunker
-
-        chunker = TextChunker(
-            chunk_size=self.config.chunk_size,
-            overlap=self.config.chunk_overlap,
-            strategy=self.config.chunking_strategy,
-        )
+        chunker = TextChunker(config=self.config.text_processing)
         self.processor = TextProcessor(chunker=chunker)
 
         # Embedding generator
-        embedding_gen = EmbeddingGenerator(
-            model_name=self.config.embedding_model,
-            batch_size=self.config.embedding_batch_size,
-        )
+        embedding_gen = EmbeddingGenerator(config=self.config.embedding)
 
-        if self.config.cache_embeddings:
-            cache = EmbeddingCache(cache_path=Path(self.config.embedding_cache_path))
+        if self.config.embedding.cache_embeddings:
+            cache = EmbeddingCache(cache_path=Path(self.config.embedding.cache_path))
             self.embedding_gen = CachedEmbeddingGenerator(
-                embedding_gen, cache, verbose_logging=self.verbose_embedding_logs
+                embedding_gen, cache, verbose_logging=self.config.logging.embedding_verbose
             )
         else:
             self.embedding_gen = embedding_gen
 
         # MongoDB manager
-        self.db_manager = MongoDBManager(
-            connection_string=self.config.mongodb_uri,
-            database_name=self.config.database_name,
-            articles_collection=self.config.articles_collection,
-            chunks_collection=self.config.chunks_collection,
-        )
+        self.db_manager = MongoDBManager(config=self.config.mongodb)
 
         logger.info("Pipeline components initialized")
 
@@ -147,10 +101,12 @@ class IngestionPipeline:
             article_batch = []
             article_count = 0
 
-            articles = self.parser.parse_stream(max_articles=self.config.max_articles)
+            articles = self.parser.parse_stream(max_articles=self.config.wikipedia.max_articles)
 
             # Create progress bar with better formatting
-            total = self.config.max_articles if self.config.max_articles else None
+            total = (
+                self.config.wikipedia.max_articles if self.config.wikipedia.max_articles else None
+            )
             pbar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
             with tqdm(
                 total=total,
@@ -169,21 +125,23 @@ class IngestionPipeline:
                     article_batch.append(article)
 
                     # Process batch when full
-                    if len(article_batch) >= self.config.batch_size:
+                    if len(article_batch) >= self.config.pipeline.batch_size:
                         self._process_batch(article_batch)
                         article_batch = []
-                        pbar.update(self.config.batch_size)
+                        pbar.update(self.config.pipeline.batch_size)
 
                         # Log cache stats periodically
                         if (
-                            self.cache_stats_interval > 0
-                            and self.stats.articles_processed % self.cache_stats_interval == 0
+                            self.config.logging.cache_stats_interval > 0
+                            and self.stats.articles_processed
+                            % self.config.logging.cache_stats_interval
+                            == 0
                             and isinstance(self.embedding_gen, CachedEmbeddingGenerator)
                         ):
                             self._log_cache_stats(pbar)
 
                     # Checkpoint at intervals
-                    if article_count % self.config.checkpoint_interval == 0:
+                    if article_count % self.config.pipeline.checkpoint_interval == 0:
                         self._save_checkpoint(article_count)
 
                 # Process remaining articles
@@ -313,13 +271,12 @@ class IngestionPipeline:
         Args:
             article_count: Number of articles processed so far
         """
-        checkpoint_path = Path(self.config.checkpoint_path)
+        checkpoint_path = Path(self.config.pipeline.checkpoint_path) / "pipeline_checkpoint.json"
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
         checkpoint = {
             "article_count": article_count,
             "stats": self.stats.to_dict(),
-            "config": asdict(self.config),
         }
 
         with open(checkpoint_path, "w") as f:
