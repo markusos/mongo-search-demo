@@ -5,10 +5,19 @@ and exposes it through a structured Pydantic model.
 """
 
 import os
+from enum import Enum
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel
+
+
+class ChunkingStrategy(str, Enum):
+    """Available chunking strategies."""
+
+    SEMANTIC = "semantic"
+    FIXED = "fixed"
+    HYBRID = "hybrid"
 
 
 class WikipediaConfig(BaseModel):
@@ -38,7 +47,7 @@ class TextProcessingConfig(BaseModel):
 
     chunk_size: int = 512
     chunk_overlap: int = 50
-    chunking_strategy: str = "semantic"
+    chunking_strategy: ChunkingStrategy = ChunkingStrategy.SEMANTIC
     min_chunk_length: int = 100
     max_chunk_length: int = 1000
 
@@ -60,7 +69,6 @@ class PipelineConfig(BaseModel):
     batch_size: int = 100
     checkpoint_interval: int = 100
     checkpoint_path: str = "./checkpoints"
-    parallel_workers: int = 4
     log_level: str = "INFO"
 
 

@@ -1,20 +1,11 @@
 """Text processing and chunking utilities for Wikipedia articles."""
 
 from dataclasses import dataclass
-from enum import Enum
 
 import tiktoken
 from loguru import logger
 
-from src.config_loader import TextProcessingConfig
-
-
-class ChunkingStrategy(str, Enum):
-    """Available chunking strategies."""
-
-    SEMANTIC = "semantic"
-    FIXED = "fixed"
-    HYBRID = "hybrid"
+from src.config_loader import ChunkingStrategy, TextProcessingConfig
 
 
 @dataclass

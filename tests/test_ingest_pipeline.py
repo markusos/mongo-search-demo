@@ -107,19 +107,16 @@ class TestPipelineConfig:
 
         assert config.batch_size == 100
         assert config.checkpoint_interval == 100
-        assert config.parallel_workers == 4
 
     def test_custom_values(self):
         """Test custom configuration values."""
         config = PipelineConfig(
             batch_size=50,
             checkpoint_interval=200,
-            parallel_workers=8,
         )
 
         assert config.batch_size == 50
         assert config.checkpoint_interval == 200
-        assert config.parallel_workers == 8
 
 
 class TestPipelineStats:

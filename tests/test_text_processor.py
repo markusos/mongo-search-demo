@@ -2,8 +2,8 @@
 
 import pytest
 
-from src.config_loader import TextProcessingConfig
-from src.text_processor import ChunkingStrategy, TextChunk, TextChunker, TextProcessor
+from src.config_loader import ChunkingStrategy, TextProcessingConfig
+from src.text_processor import TextChunk, TextChunker, TextProcessor
 
 
 @pytest.fixture
@@ -12,7 +12,7 @@ def text_processing_config():
     return TextProcessingConfig(
         chunk_size=512,
         chunk_overlap=50,
-        chunking_strategy="semantic",
+        chunking_strategy=ChunkingStrategy.SEMANTIC,
         min_chunk_length=100,
         max_chunk_length=1000,
     )
@@ -62,7 +62,7 @@ class TestTextChunker:
         config = TextProcessingConfig(
             chunk_size=100,
             chunk_overlap=100,
-            chunking_strategy="semantic",
+            chunking_strategy=ChunkingStrategy.SEMANTIC,
         )
         with pytest.raises(ValueError, match="Overlap must be less than chunk_size"):
             TextChunker(config=config)
@@ -81,7 +81,7 @@ class TestTextChunker:
         config = TextProcessingConfig(
             chunk_size=50,
             chunk_overlap=10,
-            chunking_strategy="fixed",
+            chunking_strategy=ChunkingStrategy.FIXED,
         )
         chunker = TextChunker(config=config)
 
@@ -98,7 +98,7 @@ class TestTextChunker:
         config = TextProcessingConfig(
             chunk_size=20,
             chunk_overlap=5,
-            chunking_strategy="fixed",
+            chunking_strategy=ChunkingStrategy.FIXED,
         )
         chunker = TextChunker(config=config)
 
@@ -116,7 +116,7 @@ class TestTextChunker:
         config = TextProcessingConfig(
             chunk_size=100,
             chunk_overlap=10,
-            chunking_strategy="semantic",
+            chunking_strategy=ChunkingStrategy.SEMANTIC,
         )
         chunker = TextChunker(config=config)
 
@@ -134,7 +134,7 @@ This is the third paragraph. It contains even more information."""
     def test_semantic_split_sections(self):
         """Test semantic splitting handles section headers."""
         chunker = TextChunker(
-            config=TextProcessingConfig(chunk_size=200, chunking_strategy="semantic")
+            config=TextProcessingConfig(chunk_size=200, chunking_strategy=ChunkingStrategy.SEMANTIC)
         )
 
         text = """Introduction paragraph with some content.
@@ -158,7 +158,7 @@ Content in the second section with different details."""
         """Test that large paragraphs are split with fixed strategy."""
         chunker = TextChunker(
             config=TextProcessingConfig(
-                chunk_size=50, chunk_overlap=10, chunking_strategy="semantic", min_chunk_length=20
+                chunk_size=50, chunk_overlap=10, chunking_strategy=ChunkingStrategy.SEMANTIC, min_chunk_length=20
             )
         )
 
@@ -174,7 +174,7 @@ Content in the second section with different details."""
     def test_hybrid_split(self):
         """Test hybrid splitting strategy."""
         chunker = TextChunker(
-            config=TextProcessingConfig(chunk_size=100, chunking_strategy="hybrid")
+            config=TextProcessingConfig(chunk_size=100, chunking_strategy=ChunkingStrategy.HYBRID)
         )
 
         text = """First paragraph with normal content.
@@ -223,7 +223,7 @@ Second paragraph also normal.
         """Test that all chunks preserve the article title."""
         chunker = TextChunker(
             config=TextProcessingConfig(
-                chunk_size=50, chunk_overlap=10, chunking_strategy="fixed", min_chunk_length=20
+                chunk_size=50, chunk_overlap=10, chunking_strategy=ChunkingStrategy.FIXED, min_chunk_length=20
             )
         )
 
@@ -282,7 +282,7 @@ class TestTextProcessor:
         """Test processing an article."""
         chunker = TextChunker(
             config=TextProcessingConfig(
-                chunk_size=100, chunk_overlap=10, chunking_strategy="semantic", min_chunk_length=20
+                chunk_size=100, chunk_overlap=10, chunking_strategy=ChunkingStrategy.SEMANTIC, min_chunk_length=20
             )
         )
         processor = TextProcessor(chunker)
@@ -341,7 +341,7 @@ Line 3"""
         """Test complete article processing workflow."""
         chunker = TextChunker(
             config=TextProcessingConfig(
-                chunk_size=100, chunk_overlap=20, chunking_strategy="semantic", min_chunk_length=50
+                chunk_size=100, chunk_overlap=20, chunking_strategy=ChunkingStrategy.SEMANTIC, min_chunk_length=50
             )
         )
         processor = TextProcessor(chunker)
@@ -377,7 +377,7 @@ class TestChunkingStrategies:
     def test_semantic_preserves_context(self):
         """Test that semantic chunking preserves paragraph context."""
         chunker = TextChunker(
-            config=TextProcessingConfig(chunk_size=100, chunking_strategy="semantic")
+            config=TextProcessingConfig(chunk_size=100, chunking_strategy=ChunkingStrategy.SEMANTIC)
         )
 
         text = """The French Revolution was a period of radical change.
@@ -397,7 +397,7 @@ Many historians consider it a pivotal moment in European history."""
     def test_fixed_handles_uniform_splitting(self):
         """Test that fixed chunking provides uniform chunks."""
         chunker = TextChunker(
-            config=TextProcessingConfig(chunk_size=50, chunk_overlap=10, chunking_strategy="fixed")
+            config=TextProcessingConfig(chunk_size=50, chunk_overlap=10, chunking_strategy=ChunkingStrategy.FIXED)
         )
 
         # Long continuous text without paragraph breaks
@@ -416,7 +416,7 @@ Many historians consider it a pivotal moment in European history."""
         """Test that hybrid strategy combines semantic and fixed benefits."""
         chunker = TextChunker(
             config=TextProcessingConfig(
-                chunk_size=80, chunk_overlap=15, chunking_strategy="hybrid", min_chunk_length=20
+                chunk_size=80, chunk_overlap=15, chunking_strategy=ChunkingStrategy.HYBRID, min_chunk_length=20
             )
         )
 
@@ -451,7 +451,7 @@ class TestEdgeCases:
         """Test text that's exactly the chunk size."""
         chunker = TextChunker(
             config=TextProcessingConfig(
-                chunk_size=20, chunk_overlap=5, chunking_strategy="fixed", min_chunk_length=10
+                chunk_size=20, chunk_overlap=5, chunking_strategy=ChunkingStrategy.FIXED, min_chunk_length=10
             )
         )
 
