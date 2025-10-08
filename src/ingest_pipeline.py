@@ -458,10 +458,6 @@ class IngestionPipeline:
             avg_chunks = self.stats.chunks_created / self.stats.articles_processed
             logger.info(f"  Avg Chunks/Article: {avg_chunks:.2f}")
 
-        if isinstance(self.embedding_gen, CachedEmbeddingGenerator):
-            cache_stats = self.embedding_gen.get_cache_stats()
-            logger.info(f"  Cache Hit Rate: {cache_stats['hit_rate']:.1%}")
-
         logger.info("=" * 60)
 
     def get_stats(self) -> PipelineStats:

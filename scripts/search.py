@@ -5,6 +5,7 @@ This script provides an interactive CLI for searching the Wikipedia knowledge ba
 using vector search, text search, or hybrid search methods.
 """
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -19,6 +20,20 @@ from src.config_loader import load_config
 from src.embedding_service import EmbeddingGenerator
 from src.mongodb_manager import MongoDBManager
 from src.search_service import SearchResult, SearchService
+
+
+def get_terminal_width() -> int:
+    """Get the current terminal width.
+
+    Returns:
+        Terminal width in characters (minimum 70, maximum 150)
+    """
+    try:
+        width = shutil.get_terminal_size().columns
+        # Clamp between reasonable values
+        return max(70, min(width - 2, 150))
+    except Exception:
+        return 100  # Default fallback
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -76,39 +91,91 @@ Press Enter without a command to use hybrid search (default).
     print(help_text)
 
 
-def format_result(result: SearchResult, index: int, show_text: bool = True) -> str:
+def pad_line(text: str, width: int) -> str:
+    """Pad a line to the full width and add closing border.
+
+    Args:
+        text: Line of text (should start with │)
+        width: Total terminal width
+
+    Returns:
+        Padded line with closing │
+    """
+    # Calculate how much padding we need
+    current_length = len(text)
+    padding_needed = width - current_length - 1  # -1 for closing │
+    if padding_needed > 0:
+        return text + " " * padding_needed + "│"
+    else:
+        # Line is too long, truncate and add │
+        return text[:width - 1] + "│"
+
+
+def wrap_text(text: str, width: int, prefix: str = "│   │ ") -> list[str]:
+    """Wrap text to fit within terminal width.
+
+    Args:
+        text: Text to wrap
+        width: Maximum width including prefix
+        prefix: Line prefix (e.g., table border)
+
+    Returns:
+        List of wrapped lines with proper padding
+    """
+    # Reserve space for: prefix + ending │ + at least 1 space before │
+    available_width = width - len(prefix) - 2  # -2 for ending " │"
+    if available_width <= 20:
+        available_width = 40  # Minimum reasonable width
+
+    words = text.split()
+    lines = []
+    current_line = []
+    current_length = 0
+
+    for word in words:
+        word_length = len(word) + (1 if current_line else 0)  # +1 for space
+        if current_length + word_length > available_width and current_line:
+            line_text = " ".join(current_line)
+            lines.append(pad_line(f"{prefix}{line_text}", width))
+            current_line = [word]
+            current_length = len(word)
+        else:
+            current_line.append(word)
+            current_length += word_length
+
+    if current_line:
+        line_text = " ".join(current_line)
+        lines.append(pad_line(f"{prefix}{line_text}", width))
+
+    return lines
+
+
+def format_result(result: SearchResult, index: int, show_text: bool = True, width: int = 100) -> str:
     """Format a search result for display.
 
     Args:
         result: Search result to format
         index: Result index (1-based)
         show_text: Whether to show the full text
+        width: Terminal width for formatting
 
     Returns:
         Formatted result string
     """
+    # Table-style format with metadata row and text row
+    section_info = f" › {result.section}" if result.section else ""
+
     lines = [
-        f"\n{'=' * 70}",
-        f"Result #{index}",
-        f"{'=' * 70}",
-        f"Title:   {result.title}",
-        f"Score:   {result.score:.4f}",
-        f"Rank:    {result.rank}",
-        f"Type:    {result.search_type}",
+        pad_line(f"│ {index} │ {result.title}{section_info}", width),
+        pad_line(f"│   │ Score: {result.score:.4f}", width),
     ]
 
-    if result.section:
-        lines.append(f"Section: {result.section}")
-
-    lines.append(f"Page ID: {result.page_id}")
-    lines.append(f"Chunk:   {result.chunk_id}")
-
     if show_text:
-        lines.append("\nContent Preview:")
-        lines.append("-" * 70)
-        # Limit text preview to 300 characters
-        text_preview = result.text[:300] + "..." if len(result.text) > 300 else result.text
-        lines.append(text_preview)
+        # Show text sample
+        text_preview = result.text[:1000] + "..." if len(result.text) > 1000 else result.text
+        # Wrap text to fit terminal width (wrap_text now returns padded lines)
+        wrapped_lines = wrap_text(text_preview, width)
+        lines.extend(wrapped_lines)
 
     return "\n".join(lines)
 
@@ -124,18 +191,26 @@ def print_results(
         query: The search query
         show_text: Whether to show full text
     """
-    print(f"\n{'=' * 70}")
-    print(f"Search Type: {search_type.upper()}")
-    print(f"Query: {query}")
-    print(f"Results: {len(results)}")
-    print(f"{'=' * 70}")
+    width = get_terminal_width()
+    line_width = width - 2  # Account for border characters
+
+    # Table header
+    print(f"\n┌{'─' * line_width}┐")
+    print(pad_line(f"│ {search_type.upper()}: \"{query}\"", width))
+    print(f"├{'─' * line_width}┤")
 
     if not results:
-        print("\nNo results found.")
+        print(pad_line("│ No results found.", width))
+        print(f"└{'─' * line_width}┘")
         return
 
-    for i, result in enumerate(results, 1):
-        print(format_result(result, i, show_text))
+    # Only show top 3 results
+    for i, result in enumerate(results[:3], 1):
+        if i > 1:
+            print(f"├{'─' * line_width}┤")
+        print(format_result(result, i, show_text, width))
+
+    print(f"└{'─' * line_width}┘")
 
 
 def print_comparison(
@@ -152,49 +227,58 @@ def print_comparison(
         hybrid_results: Results from hybrid search
         query: The search query
     """
-    print(f"\n{'=' * 70}")
-    print(f"SEARCH COMPARISON: {query}")
-    print(f"{'=' * 70}\n")
+    width = get_terminal_width()
+    line_width = width - 2  # Account for border characters
+
+    # Table header
+    print(f"\n┌{'─' * line_width}┐")
+    print(pad_line(f"│ COMPARISON: \"{query}\"", width))
+    print(f"├{'─' * line_width}┤")
 
     # Show top 3 results from each method
     methods = [
-        ("Vector Search", vector_results),
-        ("Text Search", text_results),
-        ("Hybrid Search", hybrid_results),
+        ("VECTOR", vector_results),
+        ("TEXT", text_results),
+        ("HYBRID", hybrid_results),
     ]
 
-    for method_name, results in methods:
-        print(f"\n{method_name} (Top 3):")
-        print("-" * 70)
+    for method_idx, (method_name, results) in enumerate(methods):
+        if method_idx > 0:
+            print(f"├{'─' * line_width}┤")
+
+        print(pad_line(f"│ {method_name}", width))
+        print(f"├{'─' * line_width}┤")
+
         if not results:
-            print("  No results")
+            print(pad_line("│ No results", width))
             continue
 
         for i, result in enumerate(results[:3], 1):
-            print(f"\n  {i}. {result.title}")
-            print(f"     Score: {result.score:.4f} | Rank: {result.rank}")
-            if result.section:
-                print(f"     Section: {result.section}")
-            # Show first 100 chars of text
-            preview = result.text[:100] + "..." if len(result.text) > 100 else result.text
-            print(f"     {preview}")
+            if i > 1:
+                print(f"├{'·' * line_width}┤")
 
-    # Show overlap analysis
-    print(f"\n{'=' * 70}")
-    print("Overlap Analysis:")
-    print("-" * 70)
+            section_info = f" › {result.section}" if result.section else ""
+            print(pad_line(f"│ {i} │ {result.title}{section_info}", width))
+            print(pad_line(f"│   │ Score: {result.score:.4f}", width))
+            # Show bigger preview (300 chars for comparison)
+            preview = result.text[:300] + "..." if len(result.text) > 300 else result.text
+            # Wrap text to fit terminal width (wrap_text now returns padded lines)
+            wrapped_lines = wrap_text(preview, width)
+            for line in wrapped_lines:
+                print(line)
 
-    vector_ids = {r.chunk_id for r in vector_results[:5]}
-    text_ids = {r.chunk_id for r in text_results[:5]}
-    hybrid_ids = {r.chunk_id for r in hybrid_results[:5]}
+    # Overlap analysis
+    vector_ids = {r.chunk_id for r in vector_results[:3]}
+    text_ids = {r.chunk_id for r in text_results[:3]}
+    hybrid_ids = {r.chunk_id for r in hybrid_results[:3]}
 
-    v_t_overlap = len(vector_ids & text_ids)
-    v_h_overlap = len(vector_ids & hybrid_ids)
-    t_h_overlap = len(text_ids & hybrid_ids)
+    v_t = len(vector_ids & text_ids)
+    v_h = len(vector_ids & hybrid_ids)
+    t_h = len(text_ids & hybrid_ids)
 
-    print(f"Vector ∩ Text:   {v_t_overlap} common results (top 5)")
-    print(f"Vector ∩ Hybrid: {v_h_overlap} common results (top 5)")
-    print(f"Text ∩ Hybrid:   {t_h_overlap} common results (top 5)")
+    print(f"├{'─' * line_width}┤")
+    print(pad_line(f"│ Overlap: V∩T={v_t} │ V∩H={v_h} │ T∩H={t_h}", width))
+    print(f"└{'─' * line_width}┘")
 
 
 def print_stats(db_manager: MongoDBManager) -> None:
@@ -287,38 +371,38 @@ def run_interactive_search() -> None:
                     start_time = datetime.now()
 
                     if command == "/vector":
-                        results = search_service.vector_search(query, limit=10)
+                        results = search_service.vector_search(query, limit=3)
                         elapsed = (datetime.now() - start_time).total_seconds()
                         print_results(results, "Vector", query)
-                        print(f"\n⏱️  Search completed in {elapsed:.2f}s")
+                        print(f"⏱️  {elapsed:.2f}s")
 
                     elif command == "/text":
-                        results = search_service.text_search(query, limit=10)
+                        results = search_service.text_search(query, limit=3)
                         elapsed = (datetime.now() - start_time).total_seconds()
                         print_results(results, "Text", query)
-                        print(f"\n⏱️  Search completed in {elapsed:.2f}s")
+                        print(f"⏱️  {elapsed:.2f}s")
 
                     elif command == "/hybrid":
-                        results = search_service.hybrid_search(query, limit=10, use_rrf=True)
+                        results = search_service.hybrid_search(query, limit=3, use_rrf=True)
                         elapsed = (datetime.now() - start_time).total_seconds()
                         print_results(results, "Hybrid (RRF)", query)
-                        print(f"\n⏱️  Search completed in {elapsed:.2f}s")
+                        print(f"⏱️  {elapsed:.2f}s")
 
                     elif command == "/weighted":
                         results = search_service.hybrid_search(
-                            query, limit=10, use_rrf=False, vector_weight=0.6, text_weight=0.4
+                            query, limit=3, use_rrf=False, vector_weight=0.6, text_weight=0.4
                         )
                         elapsed = (datetime.now() - start_time).total_seconds()
                         print_results(results, "Hybrid (Weighted)", query)
-                        print(f"\n⏱️  Search completed in {elapsed:.2f}s")
+                        print(f"⏱️  {elapsed:.2f}s")
 
                     elif command == "/compare":
-                        vector_results = search_service.vector_search(query, limit=10)
-                        text_results = search_service.text_search(query, limit=10)
-                        hybrid_results = search_service.hybrid_search(query, limit=10)
+                        vector_results = search_service.vector_search(query, limit=3)
+                        text_results = search_service.text_search(query, limit=3)
+                        hybrid_results = search_service.hybrid_search(query, limit=3)
                         elapsed = (datetime.now() - start_time).total_seconds()
                         print_comparison(vector_results, text_results, hybrid_results, query)
-                        print(f"\n⏱️  All searches completed in {elapsed:.2f}s")
+                        print(f"⏱️  {elapsed:.2f}s")
 
                     else:
                         print(f"Unknown command: {command}")
@@ -327,10 +411,10 @@ def run_interactive_search() -> None:
                 else:
                     # Default: hybrid search
                     start_time = datetime.now()
-                    results = search_service.hybrid_search(user_input, limit=10)
+                    results = search_service.hybrid_search(user_input, limit=3)
                     elapsed = (datetime.now() - start_time).total_seconds()
                     print_results(results, "Hybrid (RRF)", user_input)
-                    print(f"\n⏱️  Search completed in {elapsed:.2f}s")
+                    print(f"⏱️  {elapsed:.2f}s")
 
             except KeyboardInterrupt:
                 print("\n\nInterrupted. Type /quit to exit or continue searching.")
