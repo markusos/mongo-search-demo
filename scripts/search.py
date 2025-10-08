@@ -108,7 +108,7 @@ def pad_line(text: str, width: int) -> str:
         return text + " " * padding_needed + "│"
     else:
         # Line is too long, truncate and add │
-        return text[:width - 1] + "│"
+        return text[: width - 1] + "│"
 
 
 def wrap_text(text: str, width: int, prefix: str = "│   │ ") -> list[str]:
@@ -150,7 +150,9 @@ def wrap_text(text: str, width: int, prefix: str = "│   │ ") -> list[str]:
     return lines
 
 
-def format_result(result: SearchResult, index: int, show_text: bool = True, width: int = 100) -> str:
+def format_result(
+    result: SearchResult, index: int, show_text: bool = True, width: int = 100
+) -> str:
     """Format a search result for display.
 
     Args:
@@ -196,7 +198,7 @@ def print_results(
 
     # Table header
     print(f"\n┌{'─' * line_width}┐")
-    print(pad_line(f"│ {search_type.upper()}: \"{query}\"", width))
+    print(pad_line(f'│ {search_type.upper()}: "{query}"', width))
     print(f"├{'─' * line_width}┤")
 
     if not results:
@@ -232,7 +234,7 @@ def print_comparison(
 
     # Table header
     print(f"\n┌{'─' * line_width}┐")
-    print(pad_line(f"│ COMPARISON: \"{query}\"", width))
+    print(pad_line(f'│ COMPARISON: "{query}"', width))
     print(f"├{'─' * line_width}┤")
 
     # Show top 3 results from each method
