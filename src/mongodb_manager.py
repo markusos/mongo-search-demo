@@ -239,20 +239,29 @@ class MongoDBManager:
             logger.warning("Text search may not work properly without this index")
 
     def insert_article(self, article: dict[str, Any]) -> str:
-        """Insert a single article.
+        """Insert or update a single article using upsert.
 
         Args:
-            article: Article document to insert
+            article: Article document to insert/update
 
         Returns:
-            Inserted document ID
+            Inserted or updated document ID
 
         Raises:
-            OperationFailure: If insert fails
+            OperationFailure: If operation fails
         """
-        article["created_at"] = datetime.now(UTC)
-        result = self.articles_collection.insert_one(article)
-        return str(result.inserted_id)
+        page_id = article.get("page_id")
+        if not page_id:
+            raise ValueError("Article must have a page_id")
+
+        if "created_at" not in article:
+            article["created_at"] = datetime.now(UTC)
+
+        # Use replace_one with upsert to handle duplicates efficiently
+        # This replaces the entire document if it exists, or inserts if new
+        article["updated_at"] = datetime.now(UTC)
+        result = self.articles_collection.replace_one({"page_id": page_id}, article, upsert=True)
+        return str(result.upserted_id) if result.upserted_id else str(page_id)
 
     def insert_articles_bulk(
         self,
@@ -312,12 +321,14 @@ class MongoDBManager:
         self,
         chunks: list[dict[str, Any]],
         ordered: bool = False,
+        replace_existing: bool = True,
     ) -> dict[str, Any]:
-        """Insert multiple chunks in bulk.
+        """Insert multiple chunks in bulk, optionally replacing existing chunks.
 
         Args:
             chunks: List of chunk documents
             ordered: Whether to perform ordered inserts
+            replace_existing: If True, delete existing chunks for the page_id before inserting
 
         Returns:
             Dictionary with insert statistics
@@ -328,10 +339,18 @@ class MongoDBManager:
         if not chunks:
             return {"inserted_count": 0, "errors": []}
 
-        # Add created_at to all chunks
+        # If replacing, delete existing chunks for this page_id
+        if replace_existing and chunks:
+            page_id = chunks[0].get("page_id")
+            if page_id:
+                # Delete existing chunks for this article in one operation
+                self.chunks_collection.delete_many({"page_id": page_id})
+
+        # Add created_at to all chunks (only if not present)
         now = datetime.now(UTC)
         for chunk in chunks:
-            chunk["created_at"] = now
+            if "created_at" not in chunk:
+                chunk["created_at"] = now
 
         try:
             result = self.chunks_collection.insert_many(chunks, ordered=ordered)

@@ -63,6 +63,7 @@ class EmbeddingConfig(BaseModel):
     cache_path: str = "./embedding_cache"
     max_retries: int = 3
     retry_delay: float = 1.0
+    use_mock_embeddings: bool = False
 
 
 class PipelineConfig(BaseModel):
@@ -72,6 +73,7 @@ class PipelineConfig(BaseModel):
     checkpoint_interval: int = 100
     checkpoint_path: str = "./checkpoints"
     log_level: str = "INFO"
+    num_workers: int = 1
 
 
 class LoggingConfig(BaseModel):

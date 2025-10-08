@@ -1,6 +1,7 @@
 """Data ingestion pipeline orchestrator."""
 
 import json
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -12,6 +13,144 @@ from src.embedding_service import CachedEmbeddingGenerator, EmbeddingCache, Embe
 from src.mongodb_manager import MongoDBManager
 from src.text_processor import TextChunker, TextProcessor
 from src.wiki_parser import WikiArticle, WikiXMLParser
+
+# Global worker state (initialized per process)
+_worker_processor = None
+_worker_embedding_gen = None
+_worker_db_manager = None
+
+
+def _init_worker(config: AppConfig) -> None:
+    """Initialize worker process with persistent connections.
+
+    This runs once per worker process to set up reusable components.
+
+    Args:
+        config: Application configuration
+    """
+    global _worker_processor, _worker_embedding_gen, _worker_db_manager
+
+    # Configure worker logging based on config
+    import sys
+
+    logger.remove()
+    logger.add(sys.stderr, level=config.logging.level)
+
+    # Initialize text processor
+    chunker = TextChunker(config=config.text_processing)
+    _worker_processor = TextProcessor(chunker=chunker)
+
+    # Initialize embedding generator (reuse across articles)
+    if config.embedding.use_mock_embeddings:
+        from src.embedding_service import MockEmbeddingGenerator
+
+        _worker_embedding_gen = MockEmbeddingGenerator(config=config.embedding)
+    else:
+        embedding_gen = EmbeddingGenerator(config=config.embedding)
+        if config.embedding.cache_embeddings:
+            cache = EmbeddingCache(cache_path=Path(config.embedding.cache_path))
+            _worker_embedding_gen = CachedEmbeddingGenerator(
+                embedding_gen, cache, verbose_logging=config.logging.embedding_verbose
+            )
+        else:
+            _worker_embedding_gen = embedding_gen
+
+    # Initialize MongoDB connection (reuse across articles)
+    _worker_db_manager = MongoDBManager(config=config.mongodb)
+
+
+def _process_article_worker(article: WikiArticle) -> dict:
+    """Worker function to process a single article in parallel.
+
+    Uses global worker state initialized by _init_worker() for connection reuse.
+
+    Args:
+        article: Wikipedia article to process
+
+    Returns:
+        Dictionary with processing results
+    """
+    global _worker_processor, _worker_embedding_gen, _worker_db_manager
+
+    try:
+        # Process article using persistent components
+        chunks = _worker_processor.process_article(text=article.text, title=article.title)
+
+        if not chunks:
+            return {
+                "success": True,
+                "chunks_created": 0,
+                "documents_inserted": 0,
+                "embeddings_generated": 0,
+                "embeddings_cached": 0,
+                "article_title": article.title,
+            }
+
+        # Generate embeddings using persistent generator
+        chunk_texts = [chunk.text for chunk in chunks]
+        embeddings = list(_worker_embedding_gen.embed_batch(chunk_texts, show_progress=False))
+
+        # Get cache stats if using cached generator
+        embeddings_generated = 0
+        embeddings_cached = 0
+        if isinstance(_worker_embedding_gen, CachedEmbeddingGenerator):
+            cache_stats = _worker_embedding_gen.get_cache_stats()
+            embeddings_cached = cache_stats["cache_hits"]
+            embeddings_generated = cache_stats["cache_misses"]
+
+        # Prepare article document
+        article_doc = {
+            "page_id": article.page_id,
+            "title": article.title,
+            "full_text": article.text,
+            "namespace": article.namespace,
+            "timestamp": article.timestamp,
+            "chunk_count": len(chunks),
+            "metadata": {
+                "word_count": len(article.text.split()),
+                "language": "en",
+            },
+        }
+
+        # Prepare chunk documents
+        chunk_docs = []
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            if embedding is None:
+                continue
+
+            chunk_doc = {
+                "page_id": article.page_id,
+                "title": article.title,
+                "chunk_index": chunk.chunk_index,
+                "section": chunk.section,
+                "text": chunk.text,
+                "embedding": embedding,
+                "token_count": chunk.token_count,
+            }
+            chunk_docs.append(chunk_doc)
+
+        # Insert using persistent MongoDB connection
+        _worker_db_manager.insert_article(article_doc)
+        result = _worker_db_manager.insert_chunks_bulk(chunk_docs, ordered=False)
+        documents_inserted = result["inserted_count"]
+
+        return {
+            "success": True,
+            "chunks_created": len(chunks),
+            "documents_inserted": documents_inserted,
+            "embeddings_generated": embeddings_generated,
+            "embeddings_cached": embeddings_cached,
+            "article_title": article.title,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "chunks_created": 0,
+            "documents_inserted": 0,
+            "article_title": article.title,
+        }
 
 
 @dataclass
@@ -61,15 +200,20 @@ class IngestionPipeline:
         self.processor = TextProcessor(chunker=chunker)
 
         # Embedding generator
-        embedding_gen = EmbeddingGenerator(config=self.config.embedding)
+        if self.config.embedding.use_mock_embeddings:
+            from src.embedding_service import MockEmbeddingGenerator
 
-        if self.config.embedding.cache_embeddings:
-            cache = EmbeddingCache(cache_path=Path(self.config.embedding.cache_path))
-            self.embedding_gen = CachedEmbeddingGenerator(
-                embedding_gen, cache, verbose_logging=self.config.logging.embedding_verbose
-            )
+            self.embedding_gen = MockEmbeddingGenerator(config=self.config.embedding)
         else:
-            self.embedding_gen = embedding_gen
+            embedding_gen = EmbeddingGenerator(config=self.config.embedding)
+
+            if self.config.embedding.cache_embeddings:
+                cache = EmbeddingCache(cache_path=Path(self.config.embedding.cache_path))
+                self.embedding_gen = CachedEmbeddingGenerator(
+                    embedding_gen, cache, verbose_logging=self.config.logging.embedding_verbose
+                )
+            else:
+                self.embedding_gen = embedding_gen
 
         # MongoDB manager
         self.db_manager = MongoDBManager(config=self.config.mongodb)
@@ -93,16 +237,22 @@ class IngestionPipeline:
             start_article = self._load_checkpoint(resume_from)
             logger.info(f"Resuming from article {start_article}")
 
+        # Ensure collections and indexes exist
+        self.db_manager.setup_collections()
+
+        # Process articles in batches
+        article_batch = []
+        article_count = 0
+
+        articles = self.parser.parse_stream(max_articles=self.config.wikipedia.max_articles)
+
+        # Create persistent worker pool for the entire run
+        num_workers = self.config.pipeline.num_workers
+        executor = ProcessPoolExecutor(
+            max_workers=num_workers, initializer=_init_worker, initargs=(self.config,)
+        )
+
         try:
-            # Ensure collections and indexes exist
-            self.db_manager.setup_collections()
-
-            # Process articles in batches
-            article_batch = []
-            article_count = 0
-
-            articles = self.parser.parse_stream(max_articles=self.config.wikipedia.max_articles)
-
             # Create progress bar with better formatting
             total = (
                 self.config.wikipedia.max_articles if self.config.wikipedia.max_articles else None
@@ -126,7 +276,7 @@ class IngestionPipeline:
 
                     # Process batch when full
                     if len(article_batch) >= self.config.pipeline.batch_size:
-                        self._process_batch(article_batch)
+                        self._process_batch(article_batch, executor)
                         article_batch = []
                         pbar.update(self.config.pipeline.batch_size)
 
@@ -146,7 +296,7 @@ class IngestionPipeline:
 
                 # Process remaining articles
                 if article_batch:
-                    self._process_batch(article_batch)
+                    self._process_batch(article_batch, executor)
                     pbar.update(len(article_batch))
 
             # Final checkpoint
@@ -163,107 +313,53 @@ class IngestionPipeline:
             # Save checkpoint on failure
             self._save_checkpoint(self.stats.articles_processed)
             raise
+        finally:
+            # Clean up the executor
+            executor.shutdown(wait=True)
 
-    def _process_batch(self, articles: list[WikiArticle]) -> None:
-        """Process a batch of articles.
+    def _process_batch(self, articles: list[WikiArticle], executor: ProcessPoolExecutor) -> None:
+        """Process a batch of articles using the provided executor.
 
         Args:
             articles: Batch of Wikipedia articles to process
+            executor: ProcessPoolExecutor to use for parallel processing
         """
-        for article in articles:
-            try:
-                self._process_article(article)
-                self.stats.articles_processed += 1
-            except Exception as e:
-                logger.error(
-                    f"Failed to process article '{article.title}' (ID: {article.page_id}): {e}"
+        # Log batch summary (first and last article)
+        if len(articles) > 0:
+            if len(articles) == 1:
+                logger.info(f"Processing batch: '{articles[0].title}'")
+            else:
+                logger.info(
+                    f"Processing batch of {len(articles)} articles: '{articles[0].title}' ... '{articles[-1].title}'"
                 )
-                self.stats.articles_failed += 1
 
-    def _process_article(self, article: WikiArticle) -> None:
-        """Process a single article through the pipeline.
-
-        Args:
-            article: Wikipedia article to process
-        """
-        # Check if article already exists
-        if self.db_manager.article_exists(article.page_id):
-            logger.debug(f"Article {article.page_id} already exists, skipping")
-            self.stats.articles_skipped += 1
-            return
-
-        # Step 1: Chunk the article
-        chunks = self.processor.process_article(text=article.text, title=article.title)
-
-        if not chunks:
-            logger.warning(f"No chunks generated for article '{article.title}'")
-            return
-
-        self.stats.chunks_created += len(chunks)
-
-        # Step 2: Generate embeddings for chunks
-        chunk_texts = [chunk.text for chunk in chunks]
-        embeddings = list(self.embedding_gen.embed_batch(chunk_texts, show_progress=False))
-
-        # Count cache hits if using cached generator
-        if isinstance(self.embedding_gen, CachedEmbeddingGenerator):
-            cache_stats = self.embedding_gen.get_cache_stats()
-            self.stats.embeddings_cached = cache_stats["cache_hits"]
-            self.stats.embeddings_generated = cache_stats["cache_misses"]
-
-        # Step 3: Prepare article document
-        article_doc = {
-            "page_id": article.page_id,
-            "title": article.title,
-            "full_text": article.text,
-            "namespace": article.namespace,
-            "timestamp": article.timestamp,
-            "chunk_count": len(chunks),
-            "metadata": {
-                "word_count": len(article.text.split()),
-                "language": "en",
-            },
+        # Submit all articles for processing
+        future_to_article = {
+            executor.submit(_process_article_worker, article): article for article in articles
         }
 
-        # Step 4: Prepare chunk documents
-        chunk_docs = []
-        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-            if embedding is None:
-                logger.warning(f"Failed to generate embedding for chunk {i} of '{article.title}'")
-                self.stats.chunks_failed += 1
-                continue
+        # Collect results as they complete
+        for future in as_completed(future_to_article):
+            article = future_to_article[future]
+            try:
+                result = future.result()
+                if result["success"]:
+                    self.stats.articles_processed += 1
+                    self.stats.chunks_created += result["chunks_created"]
+                    self.stats.documents_inserted += result["documents_inserted"]
 
-            chunk_doc = {
-                "page_id": article.page_id,
-                "title": article.title,
-                "chunk_index": chunk.chunk_index,
-                "section": chunk.section,
-                "text": chunk.text,
-                "embedding": embedding,
-                "token_count": chunk.token_count,
-            }
-            chunk_docs.append(chunk_doc)
-
-        # Step 5: Insert into MongoDB
-        try:
-            # Insert article
-            self.db_manager.insert_article(article_doc)
-
-            # Bulk insert chunks
-            if chunk_docs:
-                result = self.db_manager.insert_chunks_bulk(chunk_docs, ordered=False)
-                self.stats.documents_inserted += result["inserted_count"]
-
-                if result["errors"]:
-                    logger.warning(
-                        f"Some chunks failed to insert for '{article.title}': "
-                        f"{len(result['errors'])} errors"
+                    # Update embedding stats if using cached generator
+                    if isinstance(self.embedding_gen, CachedEmbeddingGenerator):
+                        self.stats.embeddings_generated += result.get("embeddings_generated", 0)
+                        self.stats.embeddings_cached += result.get("embeddings_cached", 0)
+                else:
+                    self.stats.articles_failed += 1
+                    logger.error(
+                        f"Failed to process article '{result.get('article_title', article.title)}': {result.get('error')}"
                     )
-
-        except Exception as e:
-            logger.error(f"Failed to insert documents for '{article.title}': {e}")
-            self.stats.articles_failed += 1
-            raise
+            except Exception as e:
+                logger.error(f"Worker exception for '{article.title}': {e}")
+                self.stats.articles_failed += 1
 
     def _save_checkpoint(self, article_count: int) -> None:
         """Save checkpoint to file.

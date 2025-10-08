@@ -158,8 +158,8 @@ class TestArticleOperations:
     def test_insert_article(self, mongodb_manager):
         """Test inserting a single article."""
         mock_result = MagicMock()
-        mock_result.inserted_id = "507f1f77bcf86cd799439011"
-        mongodb_manager.articles_collection.insert_one = Mock(return_value=mock_result)
+        mock_result.upserted_id = "507f1f77bcf86cd799439011"
+        mongodb_manager.articles_collection.replace_one = Mock(return_value=mock_result)
 
         article = {
             "page_id": 12345,
@@ -171,7 +171,9 @@ class TestArticleOperations:
 
         assert doc_id == "507f1f77bcf86cd799439011"
         assert "created_at" in article
+        assert "updated_at" in article
         assert isinstance(article["created_at"], datetime)
+        assert isinstance(article["updated_at"], datetime)
 
     def test_insert_articles_bulk_success(self, mongodb_manager):
         """Test bulk inserting articles successfully."""

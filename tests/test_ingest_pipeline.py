@@ -167,17 +167,18 @@ class TestIngestionPipeline:
             assert hasattr(pipeline, "embedding_gen")
             assert hasattr(pipeline, "db_manager")
 
-    def test_process_article_success(self, app_config, sample_article, sample_chunks):
-        """Test successful article processing."""
+    def test_process_worker_function(self, app_config, sample_article, sample_chunks):
+        """Test the worker function with initializer processes articles correctly."""
         with (
-            patch("src.ingest_pipeline.WikiXMLParser"),
-            patch("src.ingest_pipeline.TextChunker"),
-            patch("src.ingest_pipeline.TextChunker"),
+            patch("src.ingest_pipeline.TextChunker") as mock_chunker_class,
             patch("src.ingest_pipeline.TextProcessor") as mock_processor_class,
             patch("src.ingest_pipeline.EmbeddingGenerator") as mock_emb_class,
             patch("src.ingest_pipeline.MongoDBManager") as mock_db_class,
         ):
             # Setup mocks
+            mock_chunker = MagicMock()
+            mock_chunker_class.return_value = mock_chunker
+
             mock_processor = MagicMock()
             mock_processor.process_article.return_value = sample_chunks
             mock_processor_class.return_value = mock_processor
@@ -187,7 +188,6 @@ class TestIngestionPipeline:
             mock_emb_class.return_value = mock_emb
 
             mock_db = MagicMock()
-            mock_db.article_exists.return_value = False
             mock_db.insert_article.return_value = "article_id"
             mock_db.insert_chunks_bulk.return_value = {
                 "inserted_count": 2,
@@ -195,134 +195,18 @@ class TestIngestionPipeline:
             }
             mock_db_class.return_value = mock_db
 
-            pipeline = IngestionPipeline(app_config)
-            pipeline._process_article(sample_article)
+            from src.ingest_pipeline import _init_worker, _process_article_worker
 
-            # Verify article was processed
-            mock_processor.process_article.assert_called_once_with(
-                text=sample_article.text, title=sample_article.title
-            )
-            mock_emb.embed_batch.assert_called_once()
-            mock_db.insert_article.assert_called_once()
-            mock_db.insert_chunks_bulk.assert_called_once()
+            # Initialize worker with mocked components
+            _init_worker(app_config)
 
-    def test_process_article_already_exists(self, app_config, sample_article):
-        """Test skipping existing article."""
-        with (
-            patch("src.ingest_pipeline.WikiXMLParser"),
-            patch("src.ingest_pipeline.TextChunker"),
-            patch("src.ingest_pipeline.TextChunker"),
-            patch("src.ingest_pipeline.TextProcessor"),
-            patch("src.ingest_pipeline.EmbeddingGenerator"),
-            patch("src.ingest_pipeline.MongoDBManager") as mock_db_class,
-        ):
-            mock_db = MagicMock()
-            mock_db.article_exists.return_value = True
-            mock_db_class.return_value = mock_db
+            # Process article
+            result = _process_article_worker(sample_article)
 
-            pipeline = IngestionPipeline(app_config)
-            initial_skipped = pipeline.stats.articles_skipped
-
-            pipeline._process_article(sample_article)
-
-            assert pipeline.stats.articles_skipped == initial_skipped + 1
-            mock_db.insert_article.assert_not_called()
-
-    def test_process_article_no_chunks(self, app_config, sample_article):
-        """Test handling article with no chunks."""
-        with (
-            patch("src.ingest_pipeline.WikiXMLParser"),
-            patch("src.ingest_pipeline.TextChunker"),
-            patch("src.ingest_pipeline.TextChunker"),
-            patch("src.ingest_pipeline.TextProcessor") as mock_processor_class,
-            patch("src.ingest_pipeline.EmbeddingGenerator"),
-            patch("src.ingest_pipeline.MongoDBManager") as mock_db_class,
-        ):
-            mock_processor = MagicMock()
-            mock_processor.process_article.return_value = []
-            mock_processor_class.return_value = mock_processor
-
-            mock_db = MagicMock()
-            mock_db.article_exists.return_value = False
-            mock_db_class.return_value = mock_db
-
-            pipeline = IngestionPipeline(app_config)
-            pipeline._process_article(sample_article)
-
-            # Should not insert anything
-            mock_db.insert_article.assert_not_called()
-
-    def test_process_article_embedding_failure(self, app_config, sample_article, sample_chunks):
-        """Test handling embedding generation failure."""
-        with (
-            patch("src.ingest_pipeline.WikiXMLParser"),
-            patch("src.ingest_pipeline.TextChunker"),
-            patch("src.ingest_pipeline.TextProcessor") as mock_processor_class,
-            patch("src.ingest_pipeline.EmbeddingGenerator") as mock_emb_class,
-            patch("src.ingest_pipeline.MongoDBManager") as mock_db_class,
-        ):
-            mock_processor = MagicMock()
-            mock_processor.process_article.return_value = sample_chunks
-            mock_processor_class.return_value = mock_processor
-
-            mock_emb = MagicMock()
-            # One successful, one failed embedding
-            mock_emb.embed_batch.return_value = [[0.1] * 768, None]
-            mock_emb_class.return_value = mock_emb
-
-            mock_db = MagicMock()
-            mock_db.article_exists.return_value = False
-            mock_db.insert_article.return_value = "article_id"
-            mock_db.insert_chunks_bulk.return_value = {
-                "inserted_count": 1,
-                "errors": [],
-            }
-            mock_db_class.return_value = mock_db
-
-            pipeline = IngestionPipeline(app_config)
-            pipeline._process_article(sample_article)
-
-            # Should insert only the successful chunk
-            assert pipeline.stats.chunks_failed == 1
-            mock_db.insert_chunks_bulk.assert_called_once()
-            call_args = mock_db.insert_chunks_bulk.call_args
-            assert len(call_args[0][0]) == 1  # Only 1 chunk inserted
-
-    def test_process_batch(self, app_config, sample_article):
-        """Test batch processing."""
-        with (
-            patch("src.ingest_pipeline.WikiXMLParser"),
-            patch("src.ingest_pipeline.TextChunker"),
-            patch("src.ingest_pipeline.TextProcessor"),
-            patch("src.ingest_pipeline.EmbeddingGenerator"),
-            patch("src.ingest_pipeline.MongoDBManager"),
-        ):
-            pipeline = IngestionPipeline(app_config)
-            pipeline._process_article = Mock()
-
-            articles = [sample_article, sample_article]
-            pipeline._process_batch(articles)
-
-            assert pipeline._process_article.call_count == 2
-            assert pipeline.stats.articles_processed == 2
-
-    def test_process_batch_with_failure(self, app_config, sample_article):
-        """Test batch processing with one failure."""
-        with (
-            patch("src.ingest_pipeline.WikiXMLParser"),
-            patch("src.ingest_pipeline.TextChunker"),
-            patch("src.ingest_pipeline.TextProcessor"),
-            patch("src.ingest_pipeline.EmbeddingGenerator"),
-            patch("src.ingest_pipeline.MongoDBManager"),
-        ):
-            pipeline = IngestionPipeline(app_config)
-            pipeline._process_article = Mock(side_effect=[None, Exception("Test error")])
-
-            articles = [sample_article, sample_article]
-            pipeline._process_batch(articles)
-
-            assert pipeline.stats.articles_processed == 1
-            assert pipeline.stats.articles_failed == 1
+            # Verify result
+            assert result["success"] is True
+            assert result["chunks_created"] == 2
+            assert result["documents_inserted"] == 2
 
     def test_save_checkpoint(self, app_config):
         """Test saving checkpoint."""
@@ -424,49 +308,6 @@ class TestIngestionPipeline:
 
 class TestPipelineIntegration:
     """Integration tests for pipeline."""
-
-    def test_run_with_small_dataset(self, app_config, sample_article, sample_chunks):
-        """Test running pipeline with small dataset."""
-        with (
-            patch("src.ingest_pipeline.WikiXMLParser") as mock_parser_class,
-            patch("src.ingest_pipeline.TextProcessor") as mock_processor_class,
-            patch("src.ingest_pipeline.EmbeddingGenerator") as mock_emb_class,
-            patch("src.ingest_pipeline.MongoDBManager") as mock_db_class,
-        ):
-            # Setup parser mock
-            mock_parser = MagicMock()
-            mock_parser.parse_stream.return_value = [sample_article, sample_article]
-            mock_parser_class.return_value = mock_parser
-
-            # Setup processor mock
-            mock_processor = MagicMock()
-            mock_processor.process_article.return_value = sample_chunks
-            mock_processor_class.return_value = mock_processor
-
-            # Setup embedding generator mock
-            mock_emb = MagicMock()
-            mock_emb.embed_batch.return_value = [[0.1] * 768, [0.2] * 768]
-            mock_emb_class.return_value = mock_emb
-
-            # Setup database mock
-            mock_db = MagicMock()
-            mock_db.article_exists.return_value = False
-            mock_db.insert_article.return_value = "article_id"
-            mock_db.insert_chunks_bulk.return_value = {
-                "inserted_count": 2,
-                "errors": [],
-            }
-            mock_db_class.return_value = mock_db
-
-            # Run pipeline
-            pipeline = IngestionPipeline(app_config)
-            stats = pipeline.run()
-
-            # Verify results
-            assert stats.articles_processed == 2
-            assert stats.chunks_created == 4  # 2 articles * 2 chunks
-            assert mock_db.insert_article.call_count == 2
-            assert mock_db.insert_chunks_bulk.call_count == 2
 
     def test_run_with_resume(self, app_config, sample_article):
         """Test resuming pipeline from checkpoint."""

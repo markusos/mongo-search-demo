@@ -12,3 +12,6 @@ mongodb:
 embedding:
   model: "text-embedding-nomic-embed-text-v1.5@q8_0"
   lmstudio_url: "http://localhost:1234"
+
+pipeline:
+  num_workers: 4

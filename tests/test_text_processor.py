@@ -158,7 +158,10 @@ Content in the second section with different details."""
         """Test that large paragraphs are split with fixed strategy."""
         chunker = TextChunker(
             config=TextProcessingConfig(
-                chunk_size=50, chunk_overlap=10, chunking_strategy=ChunkingStrategy.SEMANTIC, min_chunk_length=20
+                chunk_size=50,
+                chunk_overlap=10,
+                chunking_strategy=ChunkingStrategy.SEMANTIC,
+                min_chunk_length=20,
             )
         )
 
@@ -223,7 +226,10 @@ Second paragraph also normal.
         """Test that all chunks preserve the article title."""
         chunker = TextChunker(
             config=TextProcessingConfig(
-                chunk_size=50, chunk_overlap=10, chunking_strategy=ChunkingStrategy.FIXED, min_chunk_length=20
+                chunk_size=50,
+                chunk_overlap=10,
+                chunking_strategy=ChunkingStrategy.FIXED,
+                min_chunk_length=20,
             )
         )
 
@@ -282,7 +288,10 @@ class TestTextProcessor:
         """Test processing an article."""
         chunker = TextChunker(
             config=TextProcessingConfig(
-                chunk_size=100, chunk_overlap=10, chunking_strategy=ChunkingStrategy.SEMANTIC, min_chunk_length=20
+                chunk_size=100,
+                chunk_overlap=10,
+                chunking_strategy=ChunkingStrategy.SEMANTIC,
+                min_chunk_length=20,
             )
         )
         processor = TextProcessor(chunker)
@@ -341,7 +350,10 @@ Line 3"""
         """Test complete article processing workflow."""
         chunker = TextChunker(
             config=TextProcessingConfig(
-                chunk_size=100, chunk_overlap=20, chunking_strategy=ChunkingStrategy.SEMANTIC, min_chunk_length=50
+                chunk_size=100,
+                chunk_overlap=20,
+                chunking_strategy=ChunkingStrategy.SEMANTIC,
+                min_chunk_length=50,
             )
         )
         processor = TextProcessor(chunker)
@@ -397,7 +409,9 @@ Many historians consider it a pivotal moment in European history."""
     def test_fixed_handles_uniform_splitting(self):
         """Test that fixed chunking provides uniform chunks."""
         chunker = TextChunker(
-            config=TextProcessingConfig(chunk_size=50, chunk_overlap=10, chunking_strategy=ChunkingStrategy.FIXED)
+            config=TextProcessingConfig(
+                chunk_size=50, chunk_overlap=10, chunking_strategy=ChunkingStrategy.FIXED
+            )
         )
 
         # Long continuous text without paragraph breaks
@@ -416,7 +430,10 @@ Many historians consider it a pivotal moment in European history."""
         """Test that hybrid strategy combines semantic and fixed benefits."""
         chunker = TextChunker(
             config=TextProcessingConfig(
-                chunk_size=80, chunk_overlap=15, chunking_strategy=ChunkingStrategy.HYBRID, min_chunk_length=20
+                chunk_size=80,
+                chunk_overlap=15,
+                chunking_strategy=ChunkingStrategy.HYBRID,
+                min_chunk_length=20,
             )
         )
 
@@ -451,7 +468,10 @@ class TestEdgeCases:
         """Test text that's exactly the chunk size."""
         chunker = TextChunker(
             config=TextProcessingConfig(
-                chunk_size=20, chunk_overlap=5, chunking_strategy=ChunkingStrategy.FIXED, min_chunk_length=10
+                chunk_size=20,
+                chunk_overlap=5,
+                chunking_strategy=ChunkingStrategy.FIXED,
+                min_chunk_length=10,
             )
         )
 

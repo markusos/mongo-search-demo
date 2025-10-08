@@ -3,6 +3,7 @@
 import bz2
 import re
 import xml.sax
+from collections import deque
 from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import datetime
@@ -192,7 +193,7 @@ class WikiXMLParser:
             WikiArticle objects
         """
         articles_yielded = 0
-        pending_article = []
+        pending_article = deque()  # Use deque for O(1) popleft operations
 
         def article_callback(article: WikiArticle):
             """Yield articles immediately as they're parsed."""
@@ -228,16 +229,19 @@ class WikiXMLParser:
                 file_handle = open(self.xml_path, encoding="utf-8")
 
             with file_handle:
-                # We need to parse incrementally and yield as we go
-                # This is tricky with SAX, so we'll use a different approach
+                # Parse in chunks for better performance (64KB chunks)
+                chunk_size = 64 * 1024  # 64KB chunks
                 try:
-                    # Start parsing in a way that allows yielding
-                    for line in file_handle:
-                        parser.feed(line)
+                    while True:
+                        chunk = file_handle.read(chunk_size)
+                        if not chunk:
+                            break
+
+                        parser.feed(chunk)
 
                         # Yield any pending articles
                         while pending_article:
-                            yield pending_article.pop(0)
+                            yield pending_article.popleft()
 
                     # Close the parser to ensure all data is processed
                     parser.close()
@@ -247,7 +251,7 @@ class WikiXMLParser:
                 finally:
                     # Yield any remaining articles
                     while pending_article:
-                        yield pending_article.pop(0)
+                        yield pending_article.popleft()
 
         except Exception as e:
             logger.error(f"Error parsing XML: {e}")

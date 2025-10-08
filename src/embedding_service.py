@@ -13,6 +13,78 @@ from tqdm import tqdm
 from src.config_loader import EmbeddingConfig
 
 
+class MockEmbeddingGenerator:
+    """Mock embedding generator for testing and benchmarking without LMStudio.
+
+    This generator returns fixed vectors and can be serialized for multiprocessing.
+    """
+
+    def __init__(self, config: EmbeddingConfig):
+        """Initialize mock embedding generator.
+
+        Args:
+            config: Embedding configuration
+        """
+        self.config = config
+        self._embedding_dim = config.dimension
+        self.batch_size = config.batch_size
+        logger.info(f"Initialized mock embedding generator with dimension {self._embedding_dim}")
+
+    def embed_single(self, text: str) -> list[float]:
+        """Generate a mock embedding for a single text.
+
+        Args:
+            text: Input text
+
+        Returns:
+            Fixed embedding vector
+        """
+        if not text or not text.strip():
+            return None
+        return [0.1] * self._embedding_dim
+
+    def embed_batch(self, texts: list[str], show_progress: bool = True) -> Generator[list[float]]:
+        """Generate mock embeddings for a batch of texts.
+
+        Args:
+            texts: List of input texts
+            show_progress: Whether to show progress bar (ignored in mock)
+
+        Yields:
+            Mock embedding vectors
+        """
+        for text in texts:
+            if not text or not text.strip():
+                yield None
+            else:
+                yield [0.1] * self._embedding_dim
+
+    def get_embedding_dimension(self) -> int:
+        """Get the embedding dimension.
+
+        Returns:
+            Embedding dimension
+        """
+        return self._embedding_dim
+
+    def validate_embedding(self, embedding: list[float]) -> bool:
+        """Validate an embedding vector.
+
+        Args:
+            embedding: Embedding vector to validate
+
+        Returns:
+            True if valid, False otherwise
+        """
+        if embedding is None:
+            return False
+        if not isinstance(embedding, list):
+            return False
+        if len(embedding) != self._embedding_dim:
+            return False
+        return True
+
+
 class EmbeddingGenerator:
     """Generate embeddings using LMStudio."""
 

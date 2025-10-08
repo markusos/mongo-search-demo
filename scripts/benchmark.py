@@ -82,6 +82,7 @@ def run_benchmark(
     config,
     benchmark_name: str,
     run_number: int = 1,
+    mock_embed: bool = False,
 ) -> dict:
     """Run a single benchmark with given configuration.
 
@@ -89,6 +90,7 @@ def run_benchmark(
         config: Application configuration
         benchmark_name: Name of this benchmark
         run_number: Run number (for multiple runs)
+        mock_embed: Whether to use mock embedding generator
 
     Returns:
         Dictionary with benchmark results
@@ -96,6 +98,11 @@ def run_benchmark(
     logger.info("=" * 80)
     logger.info(f"BENCHMARK: {benchmark_name} (Run {run_number})")
     logger.info("=" * 80)
+
+    # Set mock embedding flag if requested
+    if mock_embed:
+        logger.info("Using mock embedding generator (no LMStudio required)")
+        config.embedding.use_mock_embeddings = True
 
     # Always clean cache before benchmark run for accurate measurements
     if config.embedding.cache_embeddings:
@@ -143,15 +150,12 @@ def run_benchmark(
         "timestamp": datetime.now().isoformat(),
         "success": success,
         "error_message": error_message,
+        "mock_embedding_used": mock_embed,
         "config": {
-            "max_articles": config.wikipedia.max_articles,
-            "batch_size": config.pipeline.batch_size,
-            "chunk_size": config.text_processing.chunk_size,
-            "chunk_overlap": config.text_processing.chunk_overlap,
-            "chunking_strategy": config.text_processing.chunking_strategy,
-            "embedding_model": config.embedding.model,
-            "embedding_batch_size": config.embedding.batch_size,
-            "cache_embeddings": config.embedding.cache_embeddings,
+            "wikipedia": config.wikipedia.model_dump(),
+            "text_processing": config.text_processing.model_dump(),
+            "embedding": config.embedding.model_dump(),
+            "pipeline": config.pipeline.model_dump(),
         },
         "timing": {
             "wall_time_seconds": round(wall_time, 2),
@@ -321,6 +325,12 @@ def parse_args() -> argparse.Namespace:
         help="Name for this benchmark run (default: benchmark)",
     )
 
+    parser.add_argument(
+        "--mock-embed",
+        action="store_true",
+        help="Use mock embedding generator (no LMStudio required)",
+    )
+
     return parser.parse_args()
 
 
@@ -351,13 +361,15 @@ def main() -> None:
     # Override config values for benchmark
     base_config.wikipedia.xml_path = str(xml_path)
     base_config.wikipedia.max_articles = args.articles
-    base_config.pipeline.checkpoint_interval = 10000  # Disable frequent checkpointing during benchmark
+    base_config.pipeline.checkpoint_interval = (
+        10000  # Disable frequent checkpointing during benchmark
+    )
     base_config.logging.cache_stats_interval = 0  # Disable periodic logging for cleaner output
     base_config.logging.embedding_verbose = False
 
     # Run benchmark(s)
     for run in range(1, args.runs + 1):
-        result = run_benchmark(base_config, args.name, run)
+        result = run_benchmark(base_config, args.name, run, mock_embed=args.mock_embed)
         all_results.append(result)
 
     # Save results
