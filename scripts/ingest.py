@@ -204,7 +204,7 @@ def main() -> None:
         # Run ingestion
         logger.info("=" * 70)
         logger.info("Starting ingestion pipeline...")
-        logger.info("=" * 70 + "\n")
+        logger.info("=" * 70)
 
         import time
 
@@ -229,14 +229,6 @@ def main() -> None:
         if stats.articles_processed > 0:
             avg_time = elapsed_time / stats.articles_processed
             logger.info(f"Average per article: {avg_time:.2f} seconds")
-
-        # Show cache statistics if available
-        if hasattr(pipeline.embedding_gen, "get_cache_stats"):
-            cache_stats = pipeline.embedding_gen.get_cache_stats()
-            logger.info("Embedding Cache Statistics:")
-            logger.info(f"  Cache hits: {cache_stats['cache_hits']:,}")
-            logger.info(f"  Cache misses: {cache_stats['cache_misses']:,}")
-            logger.info(f"  Hit rate: {cache_stats['hit_rate']:.1f}%")
 
         # Show database statistics after ingestion
         articles_count = pipeline.db_manager.articles_collection.count_documents({})

@@ -306,6 +306,246 @@ class TestIngestionPipeline:
             mock_db.close.assert_called_once()
 
 
+class TestMultiprocessingStatsAccumulation:
+    """Test that stats from multiple workers are correctly accumulated.
+
+    This tests the fix for cache stats showing 0 after processing thousands of records.
+    The issue was:
+    1. Workers tracked cumulative stats instead of per-article deltas
+    2. Logging read from main process instance instead of accumulated worker results
+    """
+
+    def test_stats_accumulate_from_multiple_workers(self, app_config, sample_article):
+        """Test that _process_batch correctly accumulates all stats from worker results."""
+        with (
+            patch("src.ingest_pipeline.WikiXMLParser"),
+            patch("src.ingest_pipeline.TextChunker"),
+            patch("src.ingest_pipeline.TextProcessor"),
+            patch("src.ingest_pipeline.EmbeddingGenerator"),
+            patch("src.ingest_pipeline.MongoDBManager"),
+        ):
+            pipeline = IngestionPipeline(app_config)
+            mock_executor = MagicMock()
+
+            from concurrent.futures import Future
+
+            # Simulate results from 3 different workers
+            future1 = Future()
+            future1.set_result(
+                {
+                    "success": True,
+                    "chunks_created": 5,
+                    "documents_inserted": 5,
+                    "embeddings_generated": 3,
+                    "embeddings_cached": 2,
+                    "article_title": "Article 1",
+                }
+            )
+
+            future2 = Future()
+            future2.set_result(
+                {
+                    "success": True,
+                    "chunks_created": 8,
+                    "documents_inserted": 7,
+                    "embeddings_generated": 4,
+                    "embeddings_cached": 4,
+                    "article_title": "Article 2",
+                }
+            )
+
+            future3 = Future()
+            future3.set_result(
+                {
+                    "success": False,
+                    "error": "Database error",
+                    "chunks_created": 0,
+                    "documents_inserted": 0,
+                    "article_title": "Article 3",
+                }
+            )
+
+            mock_executor.submit.side_effect = [future1, future2, future3]
+
+            # Process batch
+            articles = [sample_article, sample_article, sample_article]
+            pipeline._process_batch(articles, mock_executor)
+
+            # Verify accumulated stats
+            assert pipeline.stats.articles_processed == 2  # 2 succeeded
+            assert pipeline.stats.articles_failed == 1
+            assert pipeline.stats.chunks_created == 13  # 5 + 8
+            assert pipeline.stats.documents_inserted == 12  # 5 + 7
+            assert pipeline.stats.embeddings_generated == 7  # 3 + 4
+            assert pipeline.stats.embeddings_cached == 6  # 2 + 4
+
+    def test_stats_accumulate_across_multiple_batches(self, app_config, sample_article):
+        """Test that stats correctly accumulate across multiple batch calls."""
+        with (
+            patch("src.ingest_pipeline.WikiXMLParser"),
+            patch("src.ingest_pipeline.TextChunker"),
+            patch("src.ingest_pipeline.TextProcessor"),
+            patch("src.ingest_pipeline.EmbeddingGenerator"),
+            patch("src.ingest_pipeline.MongoDBManager"),
+        ):
+            pipeline = IngestionPipeline(app_config)
+            mock_executor = MagicMock()
+
+            from concurrent.futures import Future
+
+            # First batch
+            future1 = Future()
+            future1.set_result(
+                {
+                    "success": True,
+                    "chunks_created": 10,
+                    "documents_inserted": 10,
+                    "embeddings_generated": 5,
+                    "embeddings_cached": 5,
+                    "article_title": "Article 1",
+                }
+            )
+            mock_executor.submit.return_value = future1
+            pipeline._process_batch([sample_article], mock_executor)
+
+            # Second batch
+            future2 = Future()
+            future2.set_result(
+                {
+                    "success": True,
+                    "chunks_created": 15,
+                    "documents_inserted": 15,
+                    "embeddings_generated": 3,
+                    "embeddings_cached": 12,
+                    "article_title": "Article 2",
+                }
+            )
+            mock_executor.submit.return_value = future2
+            pipeline._process_batch([sample_article], mock_executor)
+
+            # Verify cumulative stats
+            assert pipeline.stats.articles_processed == 2
+            assert pipeline.stats.chunks_created == 25
+            assert pipeline.stats.embeddings_generated == 8
+            assert pipeline.stats.embeddings_cached == 17
+
+    def test_log_cache_stats_uses_accumulated_values(self, app_config):
+        """Test that _log_cache_stats uses accumulated worker stats, not main process stats."""
+        with (
+            patch("src.ingest_pipeline.WikiXMLParser"),
+            patch("src.ingest_pipeline.TextChunker"),
+            patch("src.ingest_pipeline.TextProcessor"),
+            patch("src.ingest_pipeline.EmbeddingGenerator"),
+            patch("src.ingest_pipeline.CachedEmbeddingGenerator") as mock_cached_gen_class,
+            patch("src.ingest_pipeline.MongoDBManager"),
+        ):
+            from src.embedding_service import CachedEmbeddingGenerator
+
+            # Main process cached generator (never used for actual work)
+            mock_cached_gen = MagicMock(spec=CachedEmbeddingGenerator)
+            mock_cached_gen.get_cache_stats.return_value = {
+                "cache_hits": 0,  # Main process never processes articles
+                "cache_misses": 0,
+            }
+            mock_cached_gen_class.return_value = mock_cached_gen
+
+            pipeline = IngestionPipeline(app_config)
+
+            # Set accumulated stats from workers
+            pipeline.stats.embeddings_cached = 75
+            pipeline.stats.embeddings_generated = 25
+
+            # Mock progress bar
+            mock_pbar = MagicMock()
+
+            # Call logging method
+            pipeline._log_cache_stats(mock_pbar)
+
+            # Verify it uses accumulated stats (75% hit rate), not main process stats (0%)
+            mock_pbar.set_postfix.assert_called_once()
+            call_args = mock_pbar.set_postfix.call_args[0][0]
+            assert call_args["cache_hit_rate"] == "75.0%"
+
+    def test_checkpoint_preserves_all_stats(self, app_config):
+        """Test that all stats are saved and restored through checkpoints."""
+        with (
+            patch("src.ingest_pipeline.WikiXMLParser"),
+            patch("src.ingest_pipeline.TextChunker"),
+            patch("src.ingest_pipeline.TextProcessor"),
+            patch("src.ingest_pipeline.EmbeddingGenerator"),
+            patch("src.ingest_pipeline.MongoDBManager"),
+        ):
+            # Create pipeline and set comprehensive stats
+            pipeline1 = IngestionPipeline(app_config)
+            pipeline1.stats.articles_processed = 100
+            pipeline1.stats.articles_failed = 5
+            pipeline1.stats.chunks_created = 500
+            pipeline1.stats.chunks_failed = 10
+            pipeline1.stats.embeddings_cached = 300
+            pipeline1.stats.embeddings_generated = 200
+            pipeline1.stats.documents_inserted = 490
+
+            # Save checkpoint
+            pipeline1._save_checkpoint(105)
+
+            # Create new pipeline and restore
+            pipeline2 = IngestionPipeline(app_config)
+            checkpoint_file = str(
+                Path(app_config.pipeline.checkpoint_path) / "pipeline_checkpoint.json"
+            )
+            pipeline2._load_checkpoint(checkpoint_file)
+
+            # Verify all stats restored
+            assert pipeline2.stats.articles_processed == 100
+            assert pipeline2.stats.articles_failed == 5
+            assert pipeline2.stats.chunks_created == 500
+            assert pipeline2.stats.chunks_failed == 10
+            assert pipeline2.stats.embeddings_cached == 300
+            assert pipeline2.stats.embeddings_generated == 200
+            assert pipeline2.stats.documents_inserted == 490
+
+    def test_chunks_failed_tracked_correctly(self, app_config, sample_article):
+        """Test that chunks_failed is tracked when embeddings fail."""
+        with (
+            patch("src.ingest_pipeline.WikiXMLParser"),
+            patch("src.ingest_pipeline.TextChunker"),
+            patch("src.ingest_pipeline.TextProcessor"),
+            patch("src.ingest_pipeline.EmbeddingGenerator"),
+            patch("src.ingest_pipeline.MongoDBManager"),
+        ):
+            pipeline = IngestionPipeline(app_config)
+            mock_executor = MagicMock()
+
+            from concurrent.futures import Future
+
+            # Simulate a result where some chunks had failed embeddings
+            # Created 10 chunks, but 3 embeddings failed, so only 7 inserted
+            future1 = Future()
+            future1.set_result(
+                {
+                    "success": True,
+                    "chunks_created": 10,
+                    "chunks_failed": 3,  # 3 chunks had failed embeddings
+                    "documents_inserted": 7,  # Only 7 successfully inserted
+                    "embeddings_generated": 4,
+                    "embeddings_cached": 3,
+                    "article_title": "Article 1",
+                }
+            )
+
+            mock_executor.submit.return_value = future1
+            pipeline._process_batch([sample_article], mock_executor)
+
+            # Verify that chunks_failed is tracked
+            assert pipeline.stats.chunks_created == 10
+            assert pipeline.stats.chunks_failed == 3
+            assert pipeline.stats.documents_inserted == 7
+            # Verify the math: chunks_created = documents_inserted + chunks_failed
+            assert pipeline.stats.chunks_created == (
+                pipeline.stats.documents_inserted + pipeline.stats.chunks_failed
+            )
+
+
 class TestPipelineIntegration:
     """Integration tests for pipeline."""
 

@@ -30,11 +30,10 @@ def _init_worker(config: AppConfig) -> None:
     """
     global _worker_processor, _worker_embedding_gen, _worker_db_manager
 
-    # Configure worker logging based on config
-    import sys
-
+    # Disable logging in worker processes to avoid duplicate log spam
+    # The main process will handle all user-facing logging
     logger.remove()
-    logger.add(sys.stderr, level=config.logging.level)
+    logger.disable("src")
 
     # Initialize text processor
     chunker = TextChunker(config=config.text_processing)
@@ -80,23 +79,31 @@ def _process_article_worker(article: WikiArticle) -> dict:
             return {
                 "success": True,
                 "chunks_created": 0,
+                "chunks_failed": 0,
                 "documents_inserted": 0,
                 "embeddings_generated": 0,
                 "embeddings_cached": 0,
                 "article_title": article.title,
             }
 
+        # Capture cache stats before generating embeddings
+        cache_stats_before = None
+        if isinstance(_worker_embedding_gen, CachedEmbeddingGenerator):
+            cache_stats_before = _worker_embedding_gen.get_cache_stats()
+
         # Generate embeddings using persistent generator
         chunk_texts = [chunk.text for chunk in chunks]
         embeddings = list(_worker_embedding_gen.embed_batch(chunk_texts, show_progress=False))
 
-        # Get cache stats if using cached generator
+        # Calculate cache stats delta for this article only
         embeddings_generated = 0
         embeddings_cached = 0
         if isinstance(_worker_embedding_gen, CachedEmbeddingGenerator):
-            cache_stats = _worker_embedding_gen.get_cache_stats()
-            embeddings_cached = cache_stats["cache_hits"]
-            embeddings_generated = cache_stats["cache_misses"]
+            cache_stats_after = _worker_embedding_gen.get_cache_stats()
+            embeddings_cached = cache_stats_after["cache_hits"] - cache_stats_before["cache_hits"]
+            embeddings_generated = (
+                cache_stats_after["cache_misses"] - cache_stats_before["cache_misses"]
+            )
 
         # Prepare article document
         article_doc = {
@@ -114,8 +121,10 @@ def _process_article_worker(article: WikiArticle) -> dict:
 
         # Prepare chunk documents
         chunk_docs = []
+        chunks_with_failed_embeddings = 0
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
             if embedding is None:
+                chunks_with_failed_embeddings += 1
                 continue
 
             chunk_doc = {
@@ -137,6 +146,7 @@ def _process_article_worker(article: WikiArticle) -> dict:
         return {
             "success": True,
             "chunks_created": len(chunks),
+            "chunks_failed": chunks_with_failed_embeddings,
             "documents_inserted": documents_inserted,
             "embeddings_generated": embeddings_generated,
             "embeddings_cached": embeddings_cached,
@@ -148,6 +158,7 @@ def _process_article_worker(article: WikiArticle) -> dict:
             "success": False,
             "error": str(e),
             "chunks_created": 0,
+            "chunks_failed": 0,
             "documents_inserted": 0,
             "article_title": article.title,
         }
@@ -258,6 +269,15 @@ class IngestionPipeline:
                 self.config.wikipedia.max_articles if self.config.wikipedia.max_articles else None
             )
             pbar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+
+            # Configure logger to write through tqdm to avoid progress bar interference
+            logger.remove()
+            logger.add(
+                lambda msg: tqdm.write(msg, end=""),
+                level=self.config.logging.level,
+                colorize=True,
+            )
+
             with tqdm(
                 total=total,
                 desc="Processing articles",
@@ -346,12 +366,10 @@ class IngestionPipeline:
                 if result["success"]:
                     self.stats.articles_processed += 1
                     self.stats.chunks_created += result["chunks_created"]
+                    self.stats.chunks_failed += result.get("chunks_failed", 0)
                     self.stats.documents_inserted += result["documents_inserted"]
-
-                    # Update embedding stats if using cached generator
-                    if isinstance(self.embedding_gen, CachedEmbeddingGenerator):
-                        self.stats.embeddings_generated += result.get("embeddings_generated", 0)
-                        self.stats.embeddings_cached += result.get("embeddings_cached", 0)
+                    self.stats.embeddings_generated += result.get("embeddings_generated", 0)
+                    self.stats.embeddings_cached += result.get("embeddings_cached", 0)
                 else:
                     self.stats.articles_failed += 1
                     logger.error(
@@ -414,25 +432,26 @@ class IngestionPipeline:
         Args:
             pbar: Progress bar instance
         """
-        if isinstance(self.embedding_gen, CachedEmbeddingGenerator):
-            cache_stats = self.embedding_gen.get_cache_stats()
-            total = cache_stats["cache_hits"] + cache_stats["cache_misses"]
-            hit_rate = (cache_stats["cache_hits"] / total * 100) if total > 0 else 0
+        # Use accumulated stats from worker results, not the main process's embedding_gen
+        total = self.stats.embeddings_cached + self.stats.embeddings_generated
+        hit_rate = (self.stats.embeddings_cached / total * 100) if total > 0 else 0
 
-            # Write to progress bar's postfix instead of separate log line
-            pbar.set_postfix(
-                {
-                    "chunks": self.stats.chunks_created,
-                    "cache_hit_rate": f"{hit_rate:.1f}%",
-                }
-            )
+        # Update progress bar postfix with inline stats
+        pbar.set_postfix(
+            {
+                "chunks": f"{self.stats.chunks_created:,}",
+                "cache_hit_rate": f"{hit_rate:.1f}%",
+            },
+            refresh=True,
+        )
 
-            logger.info(
-                f"Progress: {self.stats.articles_processed} articles | "
-                f"{self.stats.chunks_created} chunks | "
-                f"Cache: {cache_stats['cache_hits']:,} hits, "
-                f"{cache_stats['cache_misses']:,} misses ({hit_rate:.1f}% hit rate)"
-            )
+        # Log using logger.info which is already configured to use tqdm.write()
+        logger.info(
+            f"Progress: {self.stats.articles_processed:,} articles | "
+            f"{self.stats.chunks_created:,} chunks | "
+            f"Cache: {self.stats.embeddings_cached:,} hits, "
+            f"{self.stats.embeddings_generated:,} misses ({hit_rate:.1f}% hit rate)"
+        )
 
     def _log_stats(self) -> None:
         """Log pipeline statistics."""
@@ -447,11 +466,10 @@ class IngestionPipeline:
         logger.info(f"  Embeddings Cached: {self.stats.embeddings_cached:,}")
         logger.info(f"  Documents Inserted: {self.stats.documents_inserted:,}")
 
-        # Log final cache stats if using cached embeddings
-        if isinstance(self.embedding_gen, CachedEmbeddingGenerator):
-            cache_stats = self.embedding_gen.get_cache_stats()
-            total = cache_stats["cache_hits"] + cache_stats["cache_misses"]
-            hit_rate = (cache_stats["cache_hits"] / total * 100) if total > 0 else 0
+        # Calculate and log cache hit rate from accumulated stats
+        total_embeddings = self.stats.embeddings_cached + self.stats.embeddings_generated
+        if total_embeddings > 0:
+            hit_rate = self.stats.embeddings_cached / total_embeddings * 100
             logger.info(f"  Cache Hit Rate: {hit_rate:.1f}%")
 
         if self.stats.articles_processed > 0:
