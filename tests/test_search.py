@@ -1,286 +1,124 @@
-"""Tests for search.py script."""
+"""Tests for search.py TUI script."""
 
 import sys
 from pathlib import Path
+
 
 # Add scripts directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 # ruff: noqa: E402, I001
-from search import format_result, print_comparison, print_help, print_results
+from search import SearchApp, SearchResultWidget
 from src.search_service import SearchResult
 
 
-class TestFormatResult:
-    """Tests for result formatting."""
+class TestSearchResultWidget:
+    """Tests for SearchResultWidget."""
 
-    def test_format_result_with_text(self):
-        """Test formatting a result with text."""
+    def test_initialization(self):
+        """Test widget initialization."""
         result = SearchResult(
             chunk_id="chunk1",
             article_id="art1",
             page_id=123,
             title="Test Article",
-            text="This is a test article content.",
+            text="This is test content.",
             section="Introduction",
             score=0.95,
             rank=1,
             search_type="vector",
         )
 
-        formatted = format_result(result, 1, show_text=True)
+        widget = SearchResultWidget(result, 1)
+        assert widget.result == result
+        assert widget.index == 1
 
-        # Check table formatting with index
-        assert "│ 1 │" in formatted
-        assert "Test Article" in formatted
-        assert "› Introduction" in formatted
-        assert "Score: 0.9500" in formatted
-        assert "This is a test article content." in formatted
-
-    def test_format_result_without_text(self):
-        """Test formatting a result without text."""
+    def test_render_collapsed(self):
+        """Test rendering a compact single-line result."""
         result = SearchResult(
             chunk_id="chunk1",
             article_id="art1",
             page_id=123,
             title="Test Article",
-            text="This is a test article content.",
+            text="This is test content that is longer than 100 characters. " * 5,
+            section="Introduction",
+            score=0.95,
+            rank=1,
+            search_type="vector",
+        )
+
+        widget = SearchResultWidget(result, 1)
+        rendered = widget.render()
+
+        assert "Test Article" in rendered
+        assert "Introduction" in rendered
+        assert "0.9500" in rendered
+        assert "chunk1" in rendered  # Chunk ID shown
+        assert "\n" in rendered  # Two lines: title+score, chunk ID
+
+    def test_render_expanded(self):
+        """Test rendering a compact result without section."""
+        result = SearchResult(
+            chunk_id="chunk1",
+            article_id="art1",
+            page_id=123,
+            title="Test Article",
+            text="This is test content.",
             section=None,
             score=0.85,
             rank=2,
             search_type="text",
         )
 
-        formatted = format_result(result, 2, show_text=False)
+        widget = SearchResultWidget(result, 2)
+        rendered = widget.render()
 
-        # Check table formatting
-        assert "│ 2 │" in formatted
-        assert "Test Article" in formatted
-        assert "Score: 0.8500" in formatted
-        # Text should not be shown when show_text=False
-        assert "This is a test article content." not in formatted
-
-    def test_format_result_long_text_truncation(self):
-        """Test that long text is truncated."""
-        long_text = "a" * 500
-        result = SearchResult(
-            chunk_id="chunk1",
-            article_id="art1",
-            page_id=123,
-            title="Test Article",
-            text=long_text,
-            section=None,
-            score=0.85,
-            rank=1,
-            search_type="hybrid",
-        )
-
-        formatted = format_result(result, 1, show_text=True)
-
-        # Should be truncated to 1000 chars + "..." (as per search.py implementation)
-        # Since input is 500 chars, it won't be truncated, so just verify text is present
-        assert "aaa" in formatted
-        assert "│ 1 │" in formatted
-        assert "Test Article" in formatted
-
-    def test_format_result_no_section(self):
-        """Test formatting when section is None."""
-        result = SearchResult(
-            chunk_id="chunk1",
-            article_id="art1",
-            page_id=123,
-            title="Test Article",
-            text="Content",
-            section=None,
-            score=0.85,
-            rank=1,
-            search_type="vector",
-        )
-
-        formatted = format_result(result, 1, show_text=True)
-
-        assert "Section:" not in formatted
+        assert "Test Article" in rendered
+        assert "0.8500" in rendered
+        assert "chunk1" in rendered  # Chunk ID shown
+        # No preview text in list view
+        assert "This is test content." not in rendered
 
 
-class TestPrintResults:
-    """Tests for printing results."""
+class TestSearchApp:
+    """Tests for SearchApp TUI class."""
 
-    def test_print_results_with_results(self, capsys):
-        """Test printing results."""
-        results = [
-            SearchResult(
-                chunk_id="chunk1",
-                article_id="art1",
-                page_id=123,
-                title="Test Article 1",
-                text="Content 1",
-                section=None,
-                score=0.95,
-                rank=1,
-                search_type="vector",
-            ),
-            SearchResult(
-                chunk_id="chunk2",
-                article_id="art2",
-                page_id=456,
-                title="Test Article 2",
-                text="Content 2",
-                section=None,
-                score=0.85,
-                rank=2,
-                search_type="vector",
-            ),
-        ]
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.app = SearchApp()
 
-        print_results(results, "vector", "test query", show_text=False)
+    def test_init(self):
+        """Test SearchApp initialization."""
+        assert self.app.results == []
+        assert self.app.last_query == ""
+        assert self.app.search_type == "hybrid"
+        assert self.app.last_search_time == 0.0
+        assert self.app.selected_index == 0
+        assert self.app.search_service is None
+        assert self.app.db_manager is None
 
-        captured = capsys.readouterr()
-        # Check header contains search type and query
-        assert "VECTOR" in captured.out
-        assert "test query" in captured.out
-        # Check both results are present
-        assert "Test Article 1" in captured.out
-        assert "Test Article 2" in captured.out
-        # Check for table formatting
-        assert "│" in captured.out
-        assert "┌" in captured.out
-        assert "└" in captured.out
+    def test_title_and_subtitle(self):
+        """Test app has proper title and subtitle."""
+        assert self.app.TITLE == "Wikipedia Vector Search"
+        assert "tab" in self.app.SUB_TITLE.lower()
+        assert "vector" in self.app.SUB_TITLE.lower()
 
-    def test_print_results_empty(self, capsys):
-        """Test printing empty results."""
-        print_results([], "text", "test query")
+    def test_bindings(self):
+        """Test app has necessary key bindings."""
+        binding_keys = [b.key for b in self.app.BINDINGS]
+        assert "q" in binding_keys
+        assert "?" in binding_keys  # Help
+        assert "tab" in binding_keys  # Cycle focus
+        assert "v" in binding_keys  # Vector search
+        assert "t" in binding_keys  # Text search
+        assert "h" in binding_keys  # Hybrid search
+        assert "c" in binding_keys  # Compare binding
+        assert "s" in binding_keys  # Stats
 
-        captured = capsys.readouterr()
-        assert "No results found" in captured.out
-        assert "TEXT" in captured.out
-
-
-class TestPrintComparison:
-    """Tests for comparison printing."""
-
-    def test_print_comparison(self, capsys):
-        """Test comparison printing."""
-        vector_results = [
-            SearchResult(
-                chunk_id="chunk1",
-                article_id="art1",
-                page_id=123,
-                title="Vector Result 1",
-                text="Vector content 1",
-                section=None,
-                score=0.95,
-                rank=1,
-                search_type="vector",
-            ),
-        ]
-
-        text_results = [
-            SearchResult(
-                chunk_id="chunk2",
-                article_id="art2",
-                page_id=456,
-                title="Text Result 1",
-                text="Text content 1",
-                section=None,
-                score=10.5,
-                rank=1,
-                search_type="text",
-            ),
-        ]
-
-        hybrid_results = [
-            SearchResult(
-                chunk_id="chunk1",
-                article_id="art1",
-                page_id=123,
-                title="Hybrid Result 1",
-                text="Hybrid content 1",
-                section=None,
-                score=0.85,
-                rank=1,
-                search_type="hybrid",
-            ),
-        ]
-
-        print_comparison(vector_results, text_results, hybrid_results, "test query")
-
-        captured = capsys.readouterr()
-        assert "COMPARISON" in captured.out
-        assert "test query" in captured.out
-        assert "VECTOR" in captured.out
-        assert "TEXT" in captured.out
-        assert "HYBRID" in captured.out
-        assert "Vector Result 1" in captured.out
-        assert "Text Result 1" in captured.out
-        assert "Hybrid Result 1" in captured.out
-        assert "Overlap" in captured.out
-
-    def test_print_comparison_with_empty_results(self, capsys):
-        """Test comparison with some empty result sets."""
-        vector_results = [
-            SearchResult(
-                chunk_id="chunk1",
-                article_id="art1",
-                page_id=123,
-                title="Vector Result",
-                text="Content",
-                section=None,
-                score=0.95,
-                rank=1,
-                search_type="vector",
-            ),
-        ]
-
-        print_comparison(vector_results, [], [], "test query")
-
-        captured = capsys.readouterr()
-        assert "VECTOR" in captured.out
-        assert "No results" in captured.out
-
-    def test_print_comparison_overlap_calculation(self, capsys):
-        """Test overlap calculation in comparison."""
-        # Same chunk_id in all results
-        shared_result = SearchResult(
-            chunk_id="chunk1",
-            article_id="art1",
-            page_id=123,
-            title="Shared Result",
-            text="Content",
-            section=None,
-            score=0.95,
-            rank=1,
-            search_type="vector",
-        )
-
-        vector_results = [shared_result]
-        text_results = [shared_result]
-        hybrid_results = [shared_result]
-
-        print_comparison(vector_results, text_results, hybrid_results, "test query")
-
-        captured = capsys.readouterr()
-        # Check overlap is displayed (format: V∩T=1 │ V∩H=1 │ T∩H=1)
-        assert "Overlap" in captured.out
-        assert "V∩T=1" in captured.out or "V∩H=1" in captured.out or "T∩H=1" in captured.out
-
-
-class TestPrintHelp:
-    """Tests for help printing."""
-
-    def test_print_help(self, capsys):
-        """Test help printing."""
-        print_help()
-
-        captured = capsys.readouterr()
-        assert "Available Commands:" in captured.out
-        assert "/vector" in captured.out
-        assert "/text" in captured.out
-        assert "/hybrid" in captured.out
-        assert "/compare" in captured.out
-        assert "/stats" in captured.out
-        assert "/help" in captured.out
-        assert "/quit" in captured.out
-        assert "Search Tips:" in captured.out
+    def test_update_status(self):
+        """Test status update method exists."""
+        assert hasattr(self.app, "update_status")
+        assert callable(self.app.update_status)
 
 
 class TestIntegration:

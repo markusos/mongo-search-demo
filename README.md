@@ -29,7 +29,7 @@ This project showcases the **public preview** of search and vector search in **M
 - Local embedding generation with LM Studio
 - MongoDB Community Edition 8.2 storage with native search indexes
 - Resumable ingestion with checkpointing
-- Interactive CLI for testing all search methods
+- Interactive TUI (Terminal User Interface) for testing all search methods with arrow key navigation
 
 ## 📋 Requirements
 
@@ -114,38 +114,40 @@ embedding:
 
 ```bash
 # Test with 100 articles first (recommended)
-./scripts/ingest.py --max-articles 100
+./exe/ingest --max-articles 100
 
 # Process more articles
-./scripts/ingest.py --max-articles 1000
+./exe/ingest --max-articles 1000
 
 # Resume from checkpoint
-./scripts/ingest.py --resume
+./exe/ingest --resume
 
 # Clean database before ingesting
-./scripts/ingest.py --clean --max-articles 500
+./exe/ingest --clean --max-articles 500
 
 # Specify custom XML file location
-./scripts/ingest.py \
+./exe/ingest \
   --xml-file ./data/enwiki-latest-pages-articles-multistream.xml.bz2 \
   --max-articles 100
 ```
 
-### 7. Run Interactive Search Demo
+### 7. Run Interactive Search TUI
 
 ```bash
-./scripts/search.py
+./exe/search
 ```
+
+This launches an interactive terminal UI for searching the Wikipedia knowledge base. Use arrow keys to navigate results, and various commands to switch search modes.
 
 ## Scripts Usage
 
-### `scripts/ingest.py`
+### `exe/ingest`
 
 Ingests Wikipedia articles into MongoDB with embeddings.
 
 **Usage:**
 ```bash
-./scripts/ingest.py [OPTIONS]
+./exe/ingest [OPTIONS]
 ```
 
 **Options:**
@@ -160,42 +162,46 @@ Ingests Wikipedia articles into MongoDB with embeddings.
 **Examples:**
 ```bash
 # Start fresh with 100 articles
-./scripts/ingest.py --clean --max-articles 100
+./exe/ingest --clean --max-articles 100
 
 # Resume previous ingestion
-./scripts/ingest.py --resume
+./exe/ingest --resume
 
 # Custom checkpoint interval
-./scripts/ingest.py --max-articles 500 --checkpoint-interval 100
+./exe/ingest --max-articles 500 --checkpoint-interval 100
 
 # Specify custom XML file location
-./scripts/ingest.py \
+./exe/ingest \
   --xml-file ./data/enwiki-latest-pages-articles-multistream.xml.bz2 \
   --max-articles 100
 ```
 
-### `scripts/search.py`
+### `exe/search`
 
-Interactive CLI for searching the Wikipedia knowledge base.
+Interactive TUI (Terminal User Interface) for searching the Wikipedia knowledge base. Built with [Textual](https://textual.textualize.io/), provides an htop-like interface with keyboard navigation.
 
 **Usage:**
 ```bash
-./scripts/search.py [OPTIONS]
+./scripts/search
 ```
 
-**Options:**
-- `--verbose`, `-v` - Enable verbose logging
+**Key Features:**
+- Fixed layout (no scrolling terminal)
+- Arrow key navigation (↑/↓)
+- Multiple search methods (Vector, Text, Hybrid, Compare)
+- Real-time result expansion
+- Database statistics display
+- Built-in help system
 
-**Available Commands:**
+**Keyboard Shortcuts:**
 ```
-/vector <query>     - Semantic search using embeddings
-/text <query>       - Keyword search using MongoDB text search
-/hybrid <query>     - Combined search (RRF algorithm)
-/weighted <query>   - Combined search (weighted scores)
-/compare <query>    - Compare all search methods
-/stats              - Show database statistics
-/help               - Show help message
-/quit or /exit      - Exit the program
+tab       - Toggle focus for input
+↑/↓       - Navigate results
+Enter     - Submit search
+c         - Compare all search methods to hybrid search
+t         - Show database statistics
+h         - Show help
+q         - Quit
 ```
 
 **Example Queries:**
