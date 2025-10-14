@@ -517,3 +517,124 @@ class TestEdgeCases:
         # All chunks should have valid indices
         for i, chunk in enumerate(chunks):
             assert chunk.chunk_index == i
+
+    def test_semantic_breaks_with_quotes(self):
+        """Test that semantic breaking handles quotes after punctuation."""
+        config = TextProcessingConfig(
+            chunk_size=50,
+            chunk_overlap=10,
+            chunking_strategy=ChunkingStrategy.FIXED,
+            min_chunk_length=20,
+        )
+        chunker = TextChunker(config=config)
+
+        # Text with quotes after periods (common in citations)
+        text = (
+            'First sentence without quotes. Second sentence says "this is quoted." '
+            'Third sentence continues. Fourth sentence also says "another quote." '
+            "Fifth sentence ends the paragraph."
+        )
+
+        chunks = chunker.chunk_text(text, "Test")
+
+        # Check that chunks break at sentence boundaries, not mid-word
+        for i, chunk in enumerate(chunks[:-1]):  # Skip last chunk
+            last_char = chunk.text.rstrip()[-1] if chunk.text.rstrip() else ""
+            # Should end with sentence-ending punctuation (or quote after punctuation)
+            assert last_char in '.!?"', (
+                f"Chunk {i} ends with '{last_char}', expected sentence boundary"
+            )
+
+    def test_chunks_have_proper_overlap(self):
+        """Test that consecutive chunks have the configured overlap."""
+        config = TextProcessingConfig(
+            chunk_size=50,
+            chunk_overlap=10,
+            chunking_strategy=ChunkingStrategy.FIXED,
+            min_chunk_length=20,
+        )
+        chunker = TextChunker(config=config)
+
+        # Create text that will produce multiple chunks
+        text = " ".join([f"This is sentence number {i} with some content." for i in range(50)])
+
+        chunks = chunker.chunk_text(text, "Test")
+
+        # Check overlap between consecutive chunks
+        for i in range(len(chunks) - 1):
+            current_chunk = chunks[i]
+            next_chunk = chunks[i + 1]
+
+            # Try to find overlap by checking if end of current appears in next
+            overlap_found = False
+            for search_len in range(min(len(current_chunk.text), len(next_chunk.text) // 2), 0, -1):
+                suffix = current_chunk.text[-search_len:]
+                if next_chunk.text.startswith(suffix):
+                    overlap_tokens = chunker.count_tokens(suffix)
+                    overlap_found = True
+                    # Overlap should be at least 50% of configured overlap (allow flexibility for semantic breaks)
+                    assert overlap_tokens >= config.chunk_overlap * 0.5, (
+                        f"Overlap between chunks {i} and {i + 1} is {overlap_tokens} tokens, "
+                        f"expected at least {config.chunk_overlap * 0.5}"
+                    )
+                    break
+
+            # Should find some overlap or be adjacent
+            assert overlap_found or chunks[i].text[-1] in ".!?\n", (
+                f"No overlap found between chunks {i} and {i + 1}, and chunk {i} doesn't end at sentence boundary"
+            )
+
+    def test_chunks_cover_full_text(self):
+        """Test that chunks cover the entire original text without gaps."""
+        config = TextProcessingConfig(
+            chunk_size=100,
+            chunk_overlap=20,
+            chunking_strategy=ChunkingStrategy.FIXED,
+            min_chunk_length=50,
+        )
+        chunker = TextChunker(config=config)
+
+        text = """The solar system formed approximately 4.6 billion years ago. It contains eight planets orbiting the Sun.
+
+The inner planets are rocky and terrestrial. Mercury, Venus, Earth, and Mars make up this group.
+
+The outer planets are much larger gas giants. Jupiter and Saturn are the largest members.
+Neptune and Uranus complete the planetary system."""
+
+        chunks = chunker.chunk_text(text, "Test")
+
+        # Find positions of each chunk in original text
+        chunk_positions = []
+        text_lower = text.lower()
+
+        for chunk in chunks:
+            # Find chunk in original text using first 50 chars
+            search_text = chunk.text[:50].lower() if len(chunk.text) >= 50 else chunk.text.lower()
+            pos = text_lower.find(search_text)
+            assert pos != -1, f"Chunk text not found in original: {chunk.text[:50]}"
+
+            # Handle potential duplicates by searching from last known position
+            if chunk_positions:
+                last_end = chunk_positions[-1][1]
+                # Search from after last chunk
+                pos = text_lower.find(search_text, last_end - 100)  # Allow some overlap
+                if pos < last_end - 100:  # Didn't find a better position
+                    pos = text_lower.find(search_text)
+
+            end_pos = pos + len(chunk.text)
+            chunk_positions.append((pos, end_pos))
+
+        # Check coverage
+        chunk_positions.sort()
+        assert chunk_positions[0][0] == 0, "Chunks don't start at beginning of text"
+        assert chunk_positions[-1][1] == len(text), "Chunks don't cover end of text"
+
+        # Check for gaps or proper overlaps
+        for i in range(len(chunk_positions) - 1):
+            curr_end = chunk_positions[i][1]
+            next_start = chunk_positions[i + 1][0]
+
+            # Either overlapping or adjacent (no gap)
+            assert next_start <= curr_end, (
+                f"Gap found between chunk {i} and {i + 1}: positions {curr_end} to {next_start}"
+            )

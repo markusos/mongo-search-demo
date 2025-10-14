@@ -1,15 +1,7 @@
-"""Tests for search.py TUI script."""
+"""Tests for search TUI."""
 
-import sys
-from pathlib import Path
-
-
-# Add scripts directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-# ruff: noqa: E402, I001
-from search import SearchApp, SearchResultWidget
 from src.search_service import SearchResult
+from src.search_tui import SearchApp, SearchResultWidget
 
 
 class TestSearchResultWidget:
@@ -85,7 +77,12 @@ class TestSearchApp:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.app = SearchApp()
+        # Create mock services
+        from unittest.mock import Mock
+
+        self.mock_search_service = Mock()
+        self.mock_db_manager = Mock()
+        self.app = SearchApp(self.mock_search_service, self.mock_db_manager)
 
     def test_init(self):
         """Test SearchApp initialization."""
@@ -94,8 +91,8 @@ class TestSearchApp:
         assert self.app.search_type == "hybrid"
         assert self.app.last_search_time == 0.0
         assert self.app.selected_index == 0
-        assert self.app.search_service is None
-        assert self.app.db_manager is None
+        assert self.app.search_service is not None
+        assert self.app.db_manager is not None
 
     def test_title_and_subtitle(self):
         """Test app has proper title and subtitle."""

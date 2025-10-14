@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-import mwparserfromhell
 from loguru import logger
 
 
@@ -80,23 +79,27 @@ class WikiXMLHandler(xml.sax.ContentHandler):
 
     def characters(self, content):
         """Handle character data within XML tags."""
-        if not self.in_page or not content.strip():
+        if not self.in_page:
             return
 
         current = self.current_element[-1] if self.current_element else ""
 
         if current == "title":
-            self.current_title += content
+            # Strip whitespace from titles
+            if content.strip():
+                self.current_title += content
         elif current == "text":
+            # Preserve ALL whitespace in article text including newlines!
             self.current_text += content
         elif current == "id":
             # Only get the page ID (first ID tag under page), not revision ID
             # Check if parent is "page" (not "revision")
             if len(self.current_element) >= 2 and self.current_element[-2] == "page":
-                if not self.current_id:
+                if not self.current_id and content.strip():
                     self.current_id += content
         elif current == "timestamp":
-            self.current_timestamp += content
+            if content.strip():
+                self.current_timestamp += content
         elif current == "ns":
             self.current_namespace = int(content) if content.strip() else 0
 
@@ -287,69 +290,17 @@ class WikiXMLParser:
     @staticmethod
     def clean_wiki_markup(text: str) -> str:
         """
-        Clean Wikipedia markup from text.
+        Clean Wikipedia markup from text while preserving paragraph structure.
 
         Args:
             text: Raw Wikipedia markup text
 
         Returns:
-            Cleaned plain text
+            Cleaned plain text with preserved paragraph breaks
         """
-        try:
-            # Parse wikitext
-            wikicode = mwparserfromhell.parse(text)
-
-            # Remove templates (infoboxes, citations, etc.)
-            # Use a safer approach that handles malformed templates
-            templates_to_remove = []
-            try:
-                for template in wikicode.filter_templates():
-                    try:
-                        template_name = str(template.name).strip().lower()
-                        # Keep some useful templates like convert
-                        if template_name not in ["convert"]:
-                            templates_to_remove.append(template)
-                    except Exception as template_error:
-                        # If we can't parse the template name, mark it for removal
-                        logger.debug(f"Error parsing template name: {template_error}")
-                        templates_to_remove.append(template)
-
-                # Remove collected templates
-                for template in templates_to_remove:
-                    try:
-                        wikicode.remove(template)
-                    except Exception as remove_error:
-                        logger.debug(f"Error removing template: {remove_error}")
-                        # If removal fails, continue with other templates
-                        continue
-
-            except Exception as filter_error:
-                logger.debug(f"Error filtering templates: {filter_error}")
-
-            # Remove HTML comments
-            try:
-                for comment in wikicode.filter_comments():
-                    try:
-                        wikicode.remove(comment)
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-
-            # Get plain text (strips wiki links, formatting, etc.)
-            clean_text = wikicode.strip_code()
-
-            # Clean up whitespace
-            lines = [line.strip() for line in clean_text.split("\n")]
-            lines = [line for line in lines if line]  # Remove empty lines
-            clean_text = "\n".join(lines)
-
-            return clean_text
-
-        except Exception as e:
-            logger.debug(f"Error cleaning markup with mwparserfromhell: {e}")
-            # Fall back to regex-based cleaning if parsing fails
-            return WikiXMLParser._fallback_clean_markup(text)
+        # Use regex-based cleaning to preserve whitespace structure
+        # mwparserfromhell.strip_code() collapses all whitespace, which breaks paragraph detection
+        return WikiXMLParser._fallback_clean_markup(text)
 
     @staticmethod
     def _fallback_clean_markup(text: str) -> str:
@@ -398,13 +349,16 @@ class WikiXMLParser:
         text = re.sub(r"<ref[^>]*>.*?</ref>", "", text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<ref[^>]*/>", "", text, flags=re.IGNORECASE)
 
-        # Clean up whitespace
+        # Clean up whitespace while preserving paragraph structure
+        # Strip each line but keep empty lines for paragraph breaks
         lines = [line.strip() for line in text.split("\n")]
-        lines = [line for line in lines if line]
         text = "\n".join(lines)
 
-        # Remove multiple spaces
-        text = re.sub(r"\s+", " ", text)
+        # Collapse multiple empty lines into double newlines (paragraph breaks)
+        text = re.sub(r"\n\n+", "\n\n", text)
+
+        # Remove multiple spaces on the same line (but NOT newlines)
+        text = re.sub(r"[ \t]+", " ", text)
 
         return text.strip()
 
