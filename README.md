@@ -1,35 +1,18 @@
 # Wikipedia Vector Search Knowledge Base
 
-A demonstration of [MongoDB 8.2 Community Edition's new search and vector search capabilities](https://www.mongodb.com/company/blog/product-release-announcements/supercharge-self-managed-apps-search-vector-search-capabilities) (public preview). This project showcases how to build a comprehensive vector search-powered knowledge base using Wikipedia articles with MongoDB's native search features. Supports vector similarity search, full-text search, and hybrid search methods - all running locally without MongoDB Atlas.
+A demonstration of [MongoDB 8.2 Community Edition's new search and vector search capabilities](https://www.mongodb.com/company/blog/product-release-announcements/supercharge-self-managed-apps-search-vector-search-capabilities) (public preview). Build a comprehensive vector search-powered knowledge base using Wikipedia articles with MongoDB's native search features - all running locally without MongoDB Atlas.
 
 ## 🎯 What This Demonstrates
 
-This project showcases the **public preview** of search and vector search in **MongoDB 8.2 Community Edition** - powerful capabilities previously only available in MongoDB Atlas, now accessible for local development and self-managed deployments.
+**MongoDB 8.2 Community Edition** brings search and vector search capabilities previously only available in Atlas to local development and self-managed deployments.
 
-### Key Capabilities Demonstrated
+### Key Features
 
-- **Native Vector Search** (`$vectorSearch`)
-  - Semantic search using 768-dimensional embeddings
-  - No external vector database required
-  - Full functional parity with MongoDB Atlas
-
-- **Full-Text Search** (`$search`)
-  - Keyword-based search with fuzzy matching
-  - Autocomplete and relevance scoring
-  - Text analysis and faceting
-
-- **Hybrid Search**
-  - Combines vector and text search using RRF or weighted scores
-  - Best of both semantic understanding and keyword matching
-
-### Complete Pipeline Features
-
-- Wikipedia XML parsing with streaming support
-- Intelligent text chunking (semantic, fixed, hybrid strategies)
-- Local embedding generation with LM Studio
-- MongoDB Community Edition 8.2 storage with native search indexes
-- Resumable ingestion with checkpointing
-- Interactive TUI (Terminal User Interface) for testing all search methods with arrow key navigation
+- **Native Vector Search** (`$vectorSearch`) - Semantic search with 768-dimensional embeddings
+- **Full-Text Search** (`$search`) - Keyword search with fuzzy matching and relevance scoring
+- **Hybrid Search** - Combines vector and text search using RRF or weighted scores
+- **Complete Pipeline** - Wikipedia XML parsing, intelligent chunking, local embeddings (LM Studio), and resumable ingestion
+- **Interactive TUI** - Terminal interface for testing all search methods with keyboard navigation
 
 ## 📋 Requirements
 
@@ -45,19 +28,10 @@ This project showcases the **public preview** of search and vector search in **M
 ### 1. Setup MongoDB Community Edition 8.2 with Search
 
 ```bash
-# Start MongoDB Community Server 8.2 and mongot (search server)
 docker compose up -d
-
-# Verify containers are running
-docker compose ps
 ```
 
-This starts:
-- **MongoDB Community Server 8.2.0** (port 27017) - The core database
-- **mongot 0.53.1** (ports 27028, 9946) - MongoDB's search server for Community Edition
-- Automatic replica set initialization
-
-**Note:** This uses MongoDB Community Edition, NOT MongoDB Atlas. The search and vector search capabilities are now available locally in the 8.2 public preview.
+This starts MongoDB Community Server 8.2 (port 27017), mongot search server (ports 27028, 9946), and initializes a replica set.
 
 ### 2. Setup LM Studio
 
@@ -69,28 +43,18 @@ This starts:
 ### 3. Install Python Dependencies
 
 ```bash
-# Install dependencies with uv
 uv sync
 ```
 
 ### 4. Download Wikipedia Data
 
-Download the Wikipedia XML dump and place it in the project directory:
-
 ```bash
-# Create data directory
 mkdir -p data
-
-# Download Wikipedia dump (warning: large file ~20GB)
 curl -o data/enwiki-latest-pages-articles-multistream.xml.bz2 \
-  https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles-multistream.xml.bz2
-
-# Or use wget
-wget -P data/ \
   https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles-multistream.xml.bz2
 ```
 
-**Note:** The file is compressed (~20GB) and doesn't need to be extracted - the parser handles `.bz2` files directly.
+**Note:** The compressed file (~20GB) doesn't need extraction - the parser handles `.bz2` files directly.
 
 ### 5. Configuration
 
@@ -113,23 +77,11 @@ embedding:
 ### 6. Ingest Wikipedia Data
 
 ```bash
-# Test with 100 articles first (recommended)
+# Start with 100 articles (recommended for testing)
 ./exe/ingest --max-articles 100
-
-# Process more articles
-./exe/ingest --max-articles 1000
-
-# Resume from checkpoint
-./exe/ingest --resume
-
-# Clean database before ingesting
-./exe/ingest --clean --max-articles 500
-
-# Specify custom XML file location
-./exe/ingest \
-  --xml-file ./data/enwiki-latest-pages-articles-multistream.xml.bz2 \
-  --max-articles 100
 ```
+
+See [Scripts Usage](#scripts-usage) below for all ingestion options and examples.
 
 ### 7. Run Interactive Search TUI
 
@@ -137,7 +89,7 @@ embedding:
 ./exe/search
 ```
 
-This launches an interactive terminal UI for searching the Wikipedia knowledge base. Use arrow keys to navigate results, and various commands to switch search modes.
+See [Scripts Usage](#scripts-usage) below for all keyboard shortcuts and features.
 
 ## Scripts Usage
 
@@ -182,46 +134,43 @@ Interactive TUI (Terminal User Interface) for searching the Wikipedia knowledge 
 
 **Usage:**
 ```bash
-./scripts/search
+./exe/search
 ```
 
 **Key Features:**
-- Fixed layout (no scrolling terminal)
-- Arrow key navigation (↑/↓)
-- Multiple search methods (Vector, Text, Hybrid, Compare)
-- Real-time result expansion
+- Three-pane layout: search input, results list, detail pane
+- Arrow key navigation (↑/↓) through results
+- Multiple search methods (Vector, Text, Hybrid)
+- Side-by-side comparison of all search methods
+- Auto-updating detail pane when navigating results
 - Database statistics display
-- Built-in help system
+- Built-in help system with keyboard shortcuts
 
 **Keyboard Shortcuts:**
 ```
-tab       - Toggle focus for input
-↑/↓       - Navigate results
+v         - Vector search mode
+t         - Text search mode
+h         - Hybrid search mode
+c         - Compare all search methods
+s         - Show database statistics
+Tab       - Cycle focus (Input → Results → Detail)
+↑/↓       - Navigate results or scroll detail pane
 Enter     - Submit search
-c         - Compare all search methods to hybrid search
-t         - Show database statistics
-h         - Show help
+?         - Show help
 q         - Quit
 ```
 
-**Example Queries:**
-```bash
-# Semantic search
-/vector How does photosynthesis convert light energy into chemical energy?
-
-# Keyword search
-/text Albert Einstein special relativity theory
-
-# Hybrid search
-/hybrid machine learning neural networks deep learning
-
-# Compare all methods
-/compare quantum computing applications
-```
+**Example Workflow:**
+- Type query: `How does photosynthesis work?`
+- Press `v` for vector search, `t` for text search, or `h` for hybrid search
+- Use `Tab` to cycle focus between input, results, and detail panes
+- Navigate results with `↑/↓` arrow keys
+- Press `c` to compare all three search methods side-by-side
+- Press `s` to view database statistics
 
 ## 📊 Architecture
 
-This project demonstrates a complete local AI-powered search stack without cloud dependencies:
+Complete local AI-powered search stack:
 
 ```
 Wikipedia XML Dump (.xml.bz2)
@@ -230,9 +179,9 @@ Parser (extract articles)
     ↓
 Text Processor (clean, chunk)
     ↓
-Embedding Generator (LM Studio - Local)
+Embedding Generator (LM Studio)
     ↓
-MongoDB Community 8.2 + mongot (Local Search Server)
+MongoDB Community 8.2 + mongot
 ├── Vector Search ($vectorSearch)
 ├── Full-Text Search ($search)
 └── Hybrid Search (Combined)
@@ -240,19 +189,11 @@ MongoDB Community 8.2 + mongot (Local Search Server)
 Interactive Demo CLI
 ```
 
-**All running locally** - no MongoDB Atlas or cloud services required!
-
 ## 🧪 Testing
 
 ```bash
 # Run all tests
 uv run pytest
-
-# Run with coverage
-uv run pytest --cov=src --cov=scripts --cov-report=term-missing
-
-# Run specific test file
-uv run pytest tests/test_search_service.py -v
 
 # Linting
 uv run ruff check src/ tests/ scripts/
@@ -306,10 +247,10 @@ uv run ruff check src/ tests/ scripts/
 ## 🎓 Search Algorithms
 
 ### Vector Search
-Uses MongoDB Community Edition 8.2's native `$vectorSearch` aggregation stage to find semantically similar content based on embedding cosine similarity. This is the same capability previously only available in MongoDB Atlas.
+Uses MongoDB's native `$vectorSearch` aggregation stage to find semantically similar content based on embedding cosine similarity.
 
 ### Text Search
-Uses MongoDB Community Edition 8.2's native `$search` aggregation stage with text indexes and optional fuzzy matching for keyword-based retrieval.
+Uses MongoDB's native `$search` aggregation stage with text indexes and optional fuzzy matching for keyword-based retrieval.
 
 ### Hybrid Search
 
@@ -324,22 +265,4 @@ Combines ranked lists fairly without needing score normalization.
 final_score = α × normalized_vector_score + β × normalized_text_score
 ```
 Where α + β = 1.0 (default: 0.6 vector + 0.4 text)
-
-## 🔬 Development
-
-### Running Tests
-```bash
-# Run all tests with coverage
-uv run pytest --cov=src --cov-report=html
-
-# Run specific test class
-uv run pytest tests/test_search_service.py::TestSearchService -v
-
-# Run with debugging
-uv run pytest tests/test_search_service.py -v -s
-```
-
-## 📝 Configuration
-
-Configuration is managed via `config/config.yaml`:
 

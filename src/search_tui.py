@@ -186,7 +186,7 @@ class SearchApp(App):
                 Static("Select a result to view details", id="detail-text"), id="detail-pane"
             )
 
-        status_bar = Static("Ready. Press 'h' for help, 'q' to quit.", id="status-bar")
+        status_bar = Static("Ready. Press ? for help, q to quit.", id="status-bar")
         status_bar.can_focus = False
         yield status_bar
         yield Footer()
@@ -200,7 +200,7 @@ class SearchApp(App):
             chunk_count = stats["chunks"]["count"]
 
             self.update_status(
-                f"✓ Connected | Articles: {article_count:,} | Chunks: {chunk_count:,} | Press 's' to search"
+                f"✓ Connected | Articles: {article_count:,} | Chunks: {chunk_count:,} | Press ? for help, q to quit"
             )
         except Exception as e:
             logger.error(f"Failed to get stats: {e}")
@@ -303,7 +303,7 @@ class SearchApp(App):
 
             self.update_status(
                 f"Found {len(self.results)} results in {elapsed:.2f}s | "
-                f"Type: {self.search_type.upper()} | Focus: Results (↑↓ to navigate, v/t/h to change mode)"
+                f"Type: {self.search_type.upper()} | Focus: Results (↑↓ navigate, Tab cycle)"
             )
         except Exception as e:
             logger.error(f"Search error: {e}")
@@ -370,51 +370,60 @@ class SearchApp(App):
             # Focus search input
             search_input = self.query_one("#search-input", Input)
             search_input.focus()
-            self.update_status("Focus: Search Input (type to search, Enter to submit)")
+            self.update_status("Focus: Search Input (type query, Enter to search, Tab to cycle)")
         elif self.current_focus_index == 1:
             # Focus results list
             results_list = self.query_one("#results-list", VerticalScroll)
             results_list.focus()
-            self.update_status("Focus: Results List (↑↓ to navigate, v/t/h to change search mode)")
+            self.update_status("Focus: Results List (↑↓ to navigate, Tab to cycle)")
         else:
             # Focus detail pane
             detail_pane = self.query_one("#detail-pane", VerticalScroll)
             detail_pane.focus()
-            self.update_status("Focus: Detail Pane (↑↓ to scroll)")
+            self.update_status("Focus: Detail Pane (↑↓ to scroll, Tab to cycle)")
 
-    def action_help(self) -> None:
+    async def action_help(self) -> None:
         """Show help information."""
-        help_text = """
-[bold]Wikipedia Vector Search - Help[/bold]
+        help_text = """[bold cyan]Wikipedia Vector Search - Help[/bold cyan]
 
 [yellow]Search Methods:[/yellow]
-• v       - Vector search (semantic/embeddings)
-• t       - Text search (keyword/MongoDB)
-• h       - Hybrid search (RRF algorithm)
-• Buttons - Click Vector/Text/Hybrid buttons
+  [cyan]v[/cyan]       Vector search (semantic/embeddings)
+  [cyan]t[/cyan]       Text search (keyword/MongoDB)
+  [cyan]h[/cyan]       Hybrid search (RRF algorithm)
+  [dim]Buttons[/dim]  Click Vector/Text/Hybrid buttons
 
 [yellow]Focus & Navigation:[/yellow]
-• Tab     - Cycle focus: Input → Results → Detail → Input...
-• ↑/↓     - Navigate results (when Results focused) or scroll (when Detail focused)
-• Enter   - Submit search (when Input focused)
+  [cyan]Tab[/cyan]     Cycle focus: Input → Results → Detail → Input...
+  [cyan]↑/↓[/cyan]     Navigate results (when Results focused) or scroll (when Detail focused)
+  [cyan]Enter[/cyan]   Submit search (when Input focused)
 
 [yellow]Actions:[/yellow]
-• c       - Compare all search methods
-• s       - Show database statistics
-• ?       - Show this help
-• q       - Quit
+  [cyan]c[/cyan]       Compare all search methods
+  [cyan]s[/cyan]       Show database statistics
+  [cyan]?[/cyan]       Show this help
+  [cyan]q[/cyan]       Quit
 
 [yellow]Layout:[/yellow]
-• Top: Search input with mode label (VECTOR/TEXT/HYBRID)
-• Left pane: Results list (rank, title, score, chunk ID)
-• Right pane: Full text of selected result (auto-updates)
+  • Top: Search input with mode label (VECTOR/TEXT/HYBRID)
+  • Left pane: Results list (rank, title, score, chunk ID)
+  • Right pane: Full text of selected result (auto-updates)
 
 [yellow]Tips:[/yellow]
-• Press v/t/h to switch search modes (only when NOT in input field)
-• Use Tab to cycle through input, results, and detail panes
-• Detail pane updates automatically as you navigate results
-        """
-        self.update_status(help_text.strip())
+  • Press v/t/h to switch search modes (only when NOT in input field)
+  • Use Tab to cycle through input, results, and detail panes
+  • Detail pane updates automatically as you navigate results
+  • Press ? again or Esc to return to normal view
+"""
+        # Display help in the detail pane
+        detail_pane = self.query_one("#detail-pane", VerticalScroll)
+        await detail_pane.remove_children()
+        await detail_pane.mount(Static(help_text, id="help-text"))
+
+        # Focus the detail pane so user can scroll if needed
+        detail_pane.focus()
+        self.current_focus_index = 2
+
+        self.update_status("Help displayed in detail pane | Press ? again or Esc to return")
 
     def action_show_stats(self) -> None:
         """Show database statistics."""
@@ -475,6 +484,8 @@ class SearchApp(App):
             )
 
             # Show hybrid results by default
+            self.search_type = "hybrid"
+            self.update_button_states()
             self.results = hybrid_results
             self.selected_index = 0
             await self.update_results_display()
@@ -488,36 +499,80 @@ class SearchApp(App):
         """Trigger comparison action."""
         await self.show_comparison()
 
-    def action_escape(self) -> None:
+    async def action_escape(self) -> None:
         """Handle escape key."""
         search_input = self.query_one("#search-input", Input)
         detail_pane = self.query_one("#detail-pane")
         results_list = self.query_one("#results-list")
+
+        # Check if help is showing
+        try:
+            help_widget = self.query_one("#help-text")
+            if help_widget:
+                # Help is showing, restore previous view
+                if self.results:
+                    await self.update_detail_pane()
+                    results_list.focus()
+                    self.current_focus_index = 1
+                    self.update_status("Help closed | Focus: Results List (↑↓ to navigate, Tab to cycle)")
+                else:
+                    await detail_pane.remove_children()
+                    await detail_pane.mount(Static("Select a result to view details", id="detail-text"))
+                    search_input.focus()
+                    self.current_focus_index = 0
+                    self.update_status("Help closed | Focus: Search Input")
+                return
+        except Exception:
+            pass  # Help not showing
 
         if search_input.has_focus:
             self.screen.set_focus(None)
         elif detail_pane.has_focus:
             results_list.focus()
         else:
-            self.update_status("Press 'q' to quit, 'h' for help")
+            self.update_status("Press q to quit, ? for help")
 
-    def action_set_vector(self) -> None:
+    async def action_set_vector(self) -> None:
         """Set search type to vector."""
         self.search_type = "vector"
         self.update_button_states()
-        self.update_status("Search mode: VECTOR | Press Enter to search")
+        # Focus search input
+        search_input = self.query_one("#search-input", Input)
+        search_input.focus()
+        self.current_focus_index = 0
+        # Trigger search if there's a query
+        if search_input.value.strip():
+            await self.perform_search()
+        else:
+            self.update_status("Search mode: VECTOR | Enter a query to search")
 
-    def action_set_text(self) -> None:
+    async def action_set_text(self) -> None:
         """Set search type to text."""
         self.search_type = "text"
         self.update_button_states()
-        self.update_status("Search mode: TEXT | Press Enter to search")
+        # Focus search input
+        search_input = self.query_one("#search-input", Input)
+        search_input.focus()
+        self.current_focus_index = 0
+        # Trigger search if there's a query
+        if search_input.value.strip():
+            await self.perform_search()
+        else:
+            self.update_status("Search mode: TEXT | Enter a query to search")
 
-    def action_set_hybrid(self) -> None:
+    async def action_set_hybrid(self) -> None:
         """Set search type to hybrid."""
         self.search_type = "hybrid"
         self.update_button_states()
-        self.update_status("Search mode: HYBRID | Press Enter to search")
+        # Focus search input
+        search_input = self.query_one("#search-input", Input)
+        search_input.focus()
+        self.current_focus_index = 0
+        # Trigger search if there's a query
+        if search_input.value.strip():
+            await self.perform_search()
+        else:
+            self.update_status("Search mode: HYBRID | Enter a query to search")
 
     async def refresh_results(self) -> None:
         """Refresh the results display without re-fetching."""
@@ -542,17 +597,17 @@ class SearchApp(App):
 
         # Handle v/t/h for search mode switching (only when NOT in input)
         if event.key == "v":
-            self.action_set_vector()
+            await self.action_set_vector()
             event.prevent_default()
             event.stop()
             return
         elif event.key == "t":
-            self.action_set_text()
+            await self.action_set_text()
             event.prevent_default()
             event.stop()
             return
         elif event.key == "h":
-            self.action_set_hybrid()
+            await self.action_set_hybrid()
             event.prevent_default()
             event.stop()
             return
