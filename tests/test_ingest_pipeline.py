@@ -429,43 +429,6 @@ class TestMultiprocessingStatsAccumulation:
             assert pipeline.stats.embeddings_generated == 8
             assert pipeline.stats.embeddings_cached == 17
 
-    def test_log_cache_stats_uses_accumulated_values(self, app_config):
-        """Test that _log_cache_stats uses accumulated worker stats, not main process stats."""
-        with (
-            patch("src.ingest_pipeline.WikiXMLParser"),
-            patch("src.ingest_pipeline.TextChunker"),
-            patch("src.ingest_pipeline.TextProcessor"),
-            patch("src.ingest_pipeline.EmbeddingGenerator"),
-            patch("src.ingest_pipeline.CachedEmbeddingGenerator") as mock_cached_gen_class,
-            patch("src.ingest_pipeline.MongoDBManager"),
-        ):
-            from src.embedding_service import CachedEmbeddingGenerator
-
-            # Main process cached generator (never used for actual work)
-            mock_cached_gen = MagicMock(spec=CachedEmbeddingGenerator)
-            mock_cached_gen.get_cache_stats.return_value = {
-                "cache_hits": 0,  # Main process never processes articles
-                "cache_misses": 0,
-            }
-            mock_cached_gen_class.return_value = mock_cached_gen
-
-            pipeline = IngestionPipeline(app_config)
-
-            # Set accumulated stats from workers
-            pipeline.stats.embeddings_cached = 75
-            pipeline.stats.embeddings_generated = 25
-
-            # Mock progress bar
-            mock_pbar = MagicMock()
-
-            # Call logging method
-            pipeline._log_cache_stats(mock_pbar)
-
-            # Verify it uses accumulated stats (75% hit rate), not main process stats (0%)
-            mock_pbar.set_postfix.assert_called_once()
-            call_args = mock_pbar.set_postfix.call_args[0][0]
-            assert call_args["cache_hit_rate"] == "75.0%"
-
     def test_checkpoint_preserves_all_stats(self, app_config):
         """Test that all stats are saved and restored through checkpoints."""
         with (

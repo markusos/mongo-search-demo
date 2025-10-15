@@ -514,10 +514,14 @@ class SearchApp(App):
                     await self.update_detail_pane()
                     results_list.focus()
                     self.current_focus_index = 1
-                    self.update_status("Help closed | Focus: Results List (↑↓ to navigate, Tab to cycle)")
+                    self.update_status(
+                        "Help closed | Focus: Results List (↑↓ to navigate, Tab to cycle)"
+                    )
                 else:
                     await detail_pane.remove_children()
-                    await detail_pane.mount(Static("Select a result to view details", id="detail-text"))
+                    await detail_pane.mount(
+                        Static("Select a result to view details", id="detail-text")
+                    )
                     search_input.focus()
                     self.current_focus_index = 0
                     self.update_status("Help closed | Focus: Search Input")

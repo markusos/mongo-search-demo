@@ -2,6 +2,10 @@
 
 A demonstration of [MongoDB 8.2 Community Edition's new search and vector search capabilities](https://www.mongodb.com/company/blog/product-release-announcements/supercharge-self-managed-apps-search-vector-search-capabilities) (public preview). Build a comprehensive vector search-powered knowledge base using Wikipedia articles with MongoDB's native search features - all running locally without MongoDB Atlas.
 
+![MongoDB Vector Search UI](docs/mongodb_vector_search.png)
+
+This project is covered in detail here: [MongoDB Community Edition: Vector Search for Everyone](https://www.ostberg.dev/work/2025/10/12/mongodb-community-vector-search.html)
+
 ## 🎯 What This Demonstrates
 
 **MongoDB 8.2 Community Edition** brings search and vector search capabilities previously only available in Atlas to local development and self-managed deployments.

@@ -81,7 +81,6 @@ class LoggingConfig(BaseModel):
 
     level: str = "INFO"
     embedding_verbose: bool = False
-    cache_stats_interval: int = 100
 
 
 class SearchConfig(BaseModel):

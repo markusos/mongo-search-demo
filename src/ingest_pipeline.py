@@ -30,10 +30,16 @@ def _init_worker(config: AppConfig) -> None:
     """
     global _worker_processor, _worker_embedding_gen, _worker_db_manager
 
-    # Disable logging in worker processes to avoid duplicate log spam
-    # The main process will handle all user-facing logging
-    logger.remove()
-    logger.disable("src")
+    # Configure worker logging to write to file with configured log level
+    # Remove all existing handlers and set up file logging for worker
+    try:
+        logger.remove()
+    except ValueError:
+        # No handlers to remove
+        pass
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    logger.add(log_dir / "workers.log", level=config.logging.level)
 
     # Initialize text processor
     chunker = TextChunker(config=config.text_processing)
@@ -76,8 +82,15 @@ def _process_article_worker(article: WikiArticle) -> dict:
         chunks = _worker_processor.process_article(text=article.text, title=article.title)
 
         if not chunks:
+            # Log skipped article to worker log file
+            logger.warning(
+                f"Article '{article.title}' (page_id: {article.page_id}) produced no chunks - skipping database insert"
+            )
+
             return {
-                "success": True,
+                "success": False,
+                "skipped": True,
+                "error": "No chunks produced",
                 "chunks_created": 0,
                 "chunks_failed": 0,
                 "documents_inserted": 0,
@@ -154,6 +167,10 @@ def _process_article_worker(article: WikiArticle) -> dict:
         }
 
     except Exception as e:
+        # Log full exception details to worker log file
+        logger.exception(
+            f"Failed to process article '{article.title}' (page_id: {article.page_id}): {e}"
+        )
         return {
             "success": False,
             "error": str(e),
@@ -270,20 +287,20 @@ class IngestionPipeline:
             )
             pbar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
 
-            # Configure logger to write through tqdm to avoid progress bar interference
-            logger.remove()
-            logger.add(
-                lambda msg: tqdm.write(msg, end=""),
-                level=self.config.logging.level,
-                colorize=True,
-            )
-
             with tqdm(
                 total=total,
                 desc="Processing articles",
                 unit="article",
                 bar_format=pbar_format,
             ) as pbar:
+                # Configure logger to write through tqdm to avoid progress bar interference
+                logger.remove()
+                logger.add(
+                    lambda msg: tqdm.write(msg, end=""),
+                    level=self.config.logging.level,
+                    colorize=True,
+                )
+
                 for article in articles:
                     article_count += 1
 
@@ -299,16 +316,6 @@ class IngestionPipeline:
                         self._process_batch(article_batch, executor)
                         article_batch = []
                         pbar.update(self.config.pipeline.batch_size)
-
-                        # Log cache stats periodically
-                        if (
-                            self.config.logging.cache_stats_interval > 0
-                            and self.stats.articles_processed
-                            % self.config.logging.cache_stats_interval
-                            == 0
-                            and isinstance(self.embedding_gen, CachedEmbeddingGenerator)
-                        ):
-                            self._log_cache_stats(pbar)
 
                     # Checkpoint at intervals
                     if article_count % self.config.pipeline.checkpoint_interval == 0:
@@ -371,10 +378,14 @@ class IngestionPipeline:
                     self.stats.embeddings_generated += result.get("embeddings_generated", 0)
                     self.stats.embeddings_cached += result.get("embeddings_cached", 0)
                 else:
-                    self.stats.articles_failed += 1
-                    logger.error(
-                        f"Failed to process article '{result.get('article_title', article.title)}': {result.get('error')}"
-                    )
+                    # Distinguish between skipped and failed articles
+                    if result.get("skipped", False):
+                        self.stats.articles_skipped += 1
+                    else:
+                        self.stats.articles_failed += 1
+                        logger.error(
+                            f"Failed to process article '{result.get('article_title', article.title)}': {result.get('error')}"
+                        )
             except Exception as e:
                 logger.error(f"Worker exception for '{article.title}': {e}")
                 self.stats.articles_failed += 1
@@ -426,40 +437,17 @@ class IngestionPipeline:
 
         return article_count
 
-    def _log_cache_stats(self, pbar) -> None:
-        """Log cache statistics during processing.
-
-        Args:
-            pbar: Progress bar instance
-        """
-        # Use accumulated stats from worker results, not the main process's embedding_gen
-        total = self.stats.embeddings_cached + self.stats.embeddings_generated
-        hit_rate = (self.stats.embeddings_cached / total * 100) if total > 0 else 0
-
-        # Update progress bar postfix with inline stats
-        pbar.set_postfix(
-            {
-                "chunks": f"{self.stats.chunks_created:,}",
-                "cache_hit_rate": f"{hit_rate:.1f}%",
-            },
-            refresh=True,
-        )
-
-        # Log using logger.info which is already configured to use tqdm.write()
-        logger.info(
-            f"Progress: {self.stats.articles_processed:,} articles | "
-            f"{self.stats.chunks_created:,} chunks | "
-            f"Cache: {self.stats.embeddings_cached:,} hits, "
-            f"{self.stats.embeddings_generated:,} misses ({hit_rate:.1f}% hit rate)"
-        )
-
     def _log_stats(self) -> None:
         """Log pipeline statistics."""
+        total_articles = (
+            self.stats.articles_processed + self.stats.articles_skipped + self.stats.articles_failed
+        )
         logger.info("=" * 60)
         logger.info("Pipeline Statistics:")
+        logger.info(f"  Total Articles: {total_articles:,}")
         logger.info(f"  Articles Processed: {self.stats.articles_processed:,}")
-        logger.info(f"  Articles Failed: {self.stats.articles_failed:,}")
         logger.info(f"  Articles Skipped: {self.stats.articles_skipped:,}")
+        logger.info(f"  Articles Failed: {self.stats.articles_failed:,}")
         logger.info(f"  Chunks Created: {self.stats.chunks_created:,}")
         logger.info(f"  Chunks Failed: {self.stats.chunks_failed:,}")
         logger.info(f"  Embeddings Generated: {self.stats.embeddings_generated:,}")
